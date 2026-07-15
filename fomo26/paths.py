@@ -33,36 +33,24 @@ def get_environment_variables(var, optional=False):
 
 
 def get_data_path():
-    return get_environment_variable("ASPARAGUS_DATA")
+    return get_environment_variable("FOMO26_DATA")
 
 
 def get_models_path():
-    return get_environment_variable("ASPARAGUS_MODELS")
+    return get_environment_variable("FOMO26_MODELS")
 
 
 def get_results_path():
-    return get_environment_variable("ASPARAGUS_RESULTS")
+    return get_environment_variable("FOMO26_RESULTS")
 
 
 def get_config_path():
-    return get_environment_variable("ASPARAGUS_CONFIGS")
+    return get_environment_variable("FOMO26_CONFIGS")
 
 
 def get_source_labels_path():
-    return get_environment_variable("ASPARAGUS_RAW_LABELS")
+    return get_environment_variable("FOMO26_RAW_LABELS")
 
 
-def get_additional_pretrain_config_path(optional=False):
-    return get_environment_variables("ASPARAGUS_PRETRAIN_CONFIGS", optional=optional)
-
-
-def get_additional_train_config_path(optional=False):
-    return get_environment_variables("ASPARAGUS_TRAIN_CONFIGS", optional=optional)
-
-
-def get_additional_finetune_config_path(optional=False):
-    return get_environment_variables("ASPARAGUS_FINETUNE_CONFIGS", optional=optional)
-
-
-def get_additional_evalbox_config_path(optional=True):
-    return get_environment_variables("ASPARAGUS_EVAL_BOX_CONFIGS", optional=optional)
+def get_additional_finetune_config_path():
+    return get_environment_variables("FOMO26_FINETUNE_CONFIGS")

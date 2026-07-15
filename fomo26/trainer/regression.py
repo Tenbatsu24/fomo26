@@ -13,5 +13,4 @@ class RegressionTrainer(BaseTrainer):
 
     def compute_loss(self, outputs, batch):
         labels = batch["CLSREG_label"].float()
-        outputs = outputs.squeeze(-1)
         return self.criterion(outputs, labels)

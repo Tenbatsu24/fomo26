@@ -25,16 +25,25 @@ class BaseTrainer(pl.LightningModule, ABC):
             mark_trainable(self.model)
 
     def load_pretrained_checkpoint(self):
-        ckpt_path = self.config.get("pretrained_checkpoint", None)
+        ckpt_path = self.config.get("checkpoint", None)
+
         if ckpt_path is None:
+            print(f"[BaseTrainer] No checkpoint specified.")
             return
+
         state_dict = torch.load(ckpt_path, map_location="cpu")
         if isinstance(state_dict, dict) and "state_dict" in state_dict:
             state_dict = state_dict["state_dict"]
         if self.config.get("lora", False):
-            load_lora_state_dict(self.model, state_dict, strict=False)
+            missing, unexpected = load_lora_state_dict(
+                self.model, state_dict, strict=False
+            )
         else:
-            self.model.load_state_dict(state_dict, strict=False)
+            missing, unexpected = self.model.load_state_dict(state_dict, strict=False)
+
+        print(
+            f"[BaseTrainer] Loaded checkpoint from {ckpt_path}. Missing keys: {missing}, Unexpected keys: {unexpected}"
+        )
 
     def configure_optimizers(self):
         weight_decay = self.config.get("weight_decay", 0.05)

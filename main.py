@@ -12,10 +12,10 @@ from fomo26.utils.naming import get_run_name
 from fomo26.utils.config import load_yaml_config
 from fomo26.trainer.regression import RegressionTrainer
 from fomo26.aug.default import default_aug, default_norm
+from fomo26.paths import get_results_path, get_config_path
 from fomo26.trainer.segmentation import SegmentationTrainer
 from fomo26.trainer.classification import ClassificationTrainer
 from fomo26.utils.dataset import get_dataset_metadata, load_fold
-from fomo26.paths import get_models_path, get_results_path, get_config_path
 from fomo26.models.extended import vitv2_tiny, vitv2_small, vitv2_base, vitv2_large
 from fomo26.modules.data_modules.training import SegDataModule, ClsRegDataModule
 
@@ -82,7 +82,7 @@ def build_datamodule(config, task, train_files, val_files, crop_size):
     if task == "seg":
         return SegDataModule(
             batch_size=config.get("batch_size", 2),
-            num_workers=config.get("num_workers", 8),
+            num_workers=config.get("num_workers", 2),
             train_split=train_files,
             val_split=val_files,
             train_transforms=train_cpu_transforms,
@@ -91,7 +91,7 @@ def build_datamodule(config, task, train_files, val_files, crop_size):
     else:
         return ClsRegDataModule(
             batch_size=config.get("batch_size", 8),
-            num_workers=config.get("num_workers", 8),
+            num_workers=config.get("num_workers", 2),
             train_split=train_files,
             val_split=val_files,
             train_transforms=train_cpu_transforms,
@@ -101,7 +101,7 @@ def build_datamodule(config, task, train_files, val_files, crop_size):
 
 def build_trainer_module(config, task, model):
     gpu_transforms = default_aug(ndim=3)
-    norm_transforms = default_norm(normalize=True)
+    norm_transforms = default_norm()
     trainer_class = TRAINER_CLASSES[task]
     return trainer_class(
         model=model,
@@ -135,11 +135,10 @@ def main():
 
     run_name = get_run_name(dataset_name, config.get("model_variant", "small"), config.get("lora", False))
 
-    models_path = get_models_path()
     results_path = get_results_path()
 
     checkpoint_callback = ModelCheckpoint(
-        dirpath=os.path.join(models_path, run_name, f"fold{args.fold}"),
+        dirpath=os.path.join(results_path, run_name, f"fold{args.fold}"),
         filename="{epoch}-{val_loss:.4f}",
         monitor="val_loss",
         save_top_k=3,

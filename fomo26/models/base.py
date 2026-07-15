@@ -435,6 +435,8 @@ def init_weights_vit(module: nn.Module, name: str = ""):
 
 
 def vitv2_tiny(patch_size=16, num_register_tokens=4, **kwargs):
+    if "init_values" not in kwargs:
+        kwargs["init_values"] = 0.1
     model = ViTv2(
         patch_size=patch_size,
         embed_dim=192,
@@ -449,6 +451,8 @@ def vitv2_tiny(patch_size=16, num_register_tokens=4, **kwargs):
 
 
 def vitv2_small(patch_size=16, num_register_tokens=4, **kwargs):
+    if "init_values" not in kwargs:
+        kwargs["init_values"] = 0.1
     model = ViTv2(
         patch_size=patch_size,
         embed_dim=384,
@@ -463,6 +467,8 @@ def vitv2_small(patch_size=16, num_register_tokens=4, **kwargs):
 
 
 def vitv2_base(patch_size=16, num_register_tokens=4, **kwargs):
+    if "init_values" not in kwargs:
+        kwargs["init_values"] = 0.1
     model = ViTv2(
         patch_size=patch_size,
         embed_dim=768,
@@ -477,6 +483,8 @@ def vitv2_base(patch_size=16, num_register_tokens=4, **kwargs):
 
 
 def vitv2_large(patch_size=16, num_register_tokens=4, **kwargs):
+    if "init_values" not in kwargs:
+        kwargs["init_values"] = 1e-5
     model = ViTv2(
         patch_size=patch_size,
         embed_dim=1024,

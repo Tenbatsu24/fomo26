@@ -1,4 +1,5 @@
 import torch.nn as nn
+import torch.nn.functional as F
 
 from fomo26.trainer.base import BaseTrainer
 
@@ -12,5 +13,8 @@ class ClassificationTrainer(BaseTrainer):
         return self.model(x)
 
     def compute_loss(self, outputs, batch):
-        labels = batch["CLSREG_label"].long()
-        return self.criterion(outputs, labels)
+        num_classes = outputs.shape[-1]
+        one_hot_labels = F.one_hot(
+            batch["CLSREG_label"].long().squeeze(-1), num_classes
+        ).to(outputs.dtype)
+        return self.criterion(outputs, one_hot_labels)
