@@ -50,12 +50,12 @@ class ViTv2Adaption(ViTv2):
             self.head = nn.Linear(self.embed_dim // 16, classes)
 
     def forward(self, x, masks=None, last_self_attention=False, **kwargs):
-        b, c, d, h, w = x.shape
+        b, c, h, w, d = x.shape
 
         adapted_x = self.input_adapter(x)
 
         # go from 3d to folding depth into batch axes
-        reshaped_x = rearrange(adapted_x, "b c d ... -> (b d) c ...")
+        reshaped_x = rearrange(adapted_x, "b c ... d -> (b d) c ...")
 
         if self.minibatch_size > 0:
             outs = {"patch_latent": [], "latent": []}
@@ -82,7 +82,7 @@ class ViTv2Adaption(ViTv2):
             patch_latents = out["patch_latent"]
 
         if self.task in ["reg", "cls"]:
-            reshaped_out = rearrange(patch_latents, "(b d) n c -> b (d n) c", b=b, d=d)
+            reshaped_out = rearrange(patch_latents, "(b d) n c -> b (d n) c", b=b)
             attnended = self.attn_pool(reshaped_out)
             return self.head(attnended)
         elif self.task == "seg":
@@ -95,15 +95,13 @@ class ViTv2Adaption(ViTv2):
 
             # final classifier
             rearranged = rearrange(upscaled, "b c ... -> b ... c")
-            logits = rearrange(
-                self.head(rearranged), "(b d) ... c -> b c d ...", b=b, d=d
-            )
+            logits = rearrange(self.head(rearranged), "(b d) ... c -> b c ... d", b=b)
             return F.interpolate(
-                logits, size=(d, h, w), mode="trilinear", align_corners=False
+                logits, size=(h, w, d), mode="trilinear", align_corners=False
             )
         else:
             # reshaped latents
-            pooled = rearrange(latents, "(b d) c -> b d c", b=b, d=d).mean(dim=-2)
+            pooled = rearrange(latents, "(b d) c -> b d c", b=b).mean(dim=-2)
 
             return pooled
 

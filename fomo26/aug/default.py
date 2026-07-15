@@ -12,10 +12,10 @@ from gardening_tools.modules.transforms.noise import (
 )
 
 
-def default_norm(normalize=True):
+def default_norm():
     return transforms.Compose(
         [
-            Torch_Normalize(normalize=normalize),
+            Torch_Normalize(normalize=True),
         ]
     )
 
