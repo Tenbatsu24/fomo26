@@ -3,16 +3,16 @@ model:
   patch_size: 14
   num_register_tokens: 4
   minibatch_size: -1
-  lora: false
+  lora: true
 
 pretrained:
   checkpoint: /mnt/c/Users/puruv/Projects/fomo26/models/small/neco/encoder_teacher.ckpt
 
 data:
   dataset_name: CLS002_FOMO26_Infarct
-  crop_size: [128, 128, 16]
-  batch_size: 8
-  num_workers: 8
+  crop_size: [224, 224, 16]
+  batch_size: 2
+  num_workers: 1
 
 optim:
   lr: 0.0001
@@ -21,9 +21,8 @@ optim:
   total_steps: null
 
 trainer:
-  max_steps: 100000
+  max_steps: 100
   precision: 32-true
   devices: auto
   strategy: auto
-  log_every_n_steps: 50
   gradient_clip_val: 3.0

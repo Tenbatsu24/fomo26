@@ -147,15 +147,17 @@ def main():
     lr_monitor = LearningRateMonitor(logging_interval="step")
 
     pl_trainer = pl.Trainer(
-        max_steps=config.get("max_steps", 100000),
+        max_steps=config.get("max_steps", 100_000),
         default_root_dir=os.path.join(results_path, run_name, f"fold{args.fold}"),
         callbacks=[checkpoint_callback, lr_monitor],
-        precision=config.get("precision", "b16-mixed"),
+        precision=config.get("precision", "bf16-mixed"),
         accelerator="auto",
         devices=config.get("devices", "auto"),
         strategy=config.get("strategy", "auto"),
-        log_every_n_steps=config.get("log_every_n_steps", 50),
+        log_every_n_steps=config.get("max_steps", 100_000) // 100,
         gradient_clip_val=config.get("gradient_clip_val", None),
+        val_check_interval=config.get("max_steps", 100_000) // 10,
+        check_val_every_n_epoch=None
     )
 
     pl_trainer.fit(trainer_module, datamodule=datamodule)
