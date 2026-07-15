@@ -1,8 +1,9 @@
 from typing import Literal
 from functools import partial
 
-import torch
 import torch.nn as nn
+import torch.nn.functional as F
+
 from einops import rearrange
 
 from fomo26.models.base import ViTv2
@@ -17,29 +18,36 @@ class ViTv2Adaption(ViTv2):
         med_in_channels: int,
         task: Literal["reg", "cls", "seg"],
         classes,
+        minibatch_size: int,
         *args,
         **kwargs,
     ):
         super(ViTv2Adaption, self).__init__(*args, **kwargs)
 
         self.task = task
+        self.minibatch_size = minibatch_size
 
         if task in ["reg", "cls", "seg"]:
             self.input_adapter = InputChannelAdapter(in_channels=med_in_channels)
         else:
-            self.input_adapter = nn.Conv1d(med_in_channels, 3, 1, bias=False)
+            self.input_adapter = nn.Conv3d(med_in_channels, 3, 1, bias=False)
 
         if task in ["reg", "cls"]:
             self.attn_pool = AttentionPooling(self.embed_dim)
             if task == "cls":
                 self.head = nn.Linear(self.embed_dim, classes)
-            elif task == "seg":
+            elif task == "reg":
                 self.head = nn.Linear(self.embed_dim, 1)
             else:
                 self.head = nn.Identity()
         else:
-            self.upscale = ScaleBlock(self.embed_dim)
-            self.head = nn.Linear(self.embed_dim, classes)
+            self.upscale = nn.Sequential(
+                ScaleBlock(self.embed_dim),
+                ScaleBlock(self.embed_dim // 2),
+                ScaleBlock(self.embed_dim // 4),
+                ScaleBlock(self.embed_dim // 8),
+            )
+            self.head = nn.Linear(self.embed_dim // 16, classes)
 
     def forward(self, x, masks=None, last_self_attention=False, **kwargs):
         b, c, d, h, w = x.shape
@@ -47,40 +55,57 @@ class ViTv2Adaption(ViTv2):
         adapted_x = self.input_adapter(x)
 
         # go from 3d to folding depth into batch axes
-        reshaped_x = rearrange(adapted_x, "b c d h w -> (b d) c h w")
-        out = super().forward(
-            reshaped_x, masks=masks, last_self_attention=last_self_attention, **kwargs
-        )
+        reshaped_x = rearrange(adapted_x, "b c d ... -> (b d) c ...")
 
-        patch_latents = out["patch_latents"]
+        if self.minibatch_size > 0:
+            outs = {"patch_latent": [], "latent": []}
+            for start in range(0, b * d, self.minibatch_size):
+                minibatch = reshaped_x[start : start + self.minibatch_size]
+                out = super().forward(
+                    minibatch,
+                    masks=masks,
+                    last_self_attention=last_self_attention,
+                    **kwargs,
+                )
+                outs["patch_latent"].append(out["patch_latent"])
+                outs["latent"].append(out["latent"])
+            latents = torch.concat(outs["latent"], dim=0)
+            patch_latents = torch.concat(outs["patch_latent"], dim=0)
+        else:
+            out = super().forward(
+                reshaped_x,
+                masks=masks,
+                last_self_attention=last_self_attention,
+                **kwargs,
+            )
+            latents = out["latent"]
+            patch_latents = out["patch_latent"]
+
         if self.task in ["reg", "cls"]:
             reshaped_out = rearrange(patch_latents, "(b d) n c -> b (d n) c", b=b, d=d)
             attnended = self.attn_pool(reshaped_out)
             return self.head(attnended)
         elif self.task == "seg":
             # make spatial
-            patch_size = self.patch_size
-            hp, wp = h // patch_size, w // patch_size
+            hp, wp = h // self.patch_size, w // self.patch_size
 
-            spatial = rearrange(
-                patch_latents, "(b d) (hp wp) c -> b d c hp wp", b=b, d=d, hp=hp, wp=wp
-            )
+            spatial = rearrange(patch_latents, "b (hp wp) c -> b c hp wp", hp=hp, wp=wp)
 
-            # apply scale block
-            scaled = self.upscale(spatial)  # (b d) c h w
+            upscaled = self.upscale(spatial)
 
             # final classifier
-            return self.head(scaled)
+            rearranged = rearrange(upscaled, "b c ... -> b ... c")
+            logits = rearrange(
+                self.head(rearranged), "(b d) ... c -> b c d ...", b=b, d=d
+            )
+            return F.interpolate(
+                logits, size=(d, h, w), mode="trilinear", align_corners=False
+            )
         else:
-            out_latents = out["latents"]  # (b d) c
-
             # reshaped latents
-            reshaped_latents = rearrange(out_latents, "(b d) c -> b d c", b=b, d=d)
+            pooled = rearrange(latents, "(b d) c -> b d c", b=b, d=d).mean(dim=-2)
 
-            # pool along depth in some clever but not learnt way
-            pooled_out = reshaped_latents.mean(dim=-2)
-
-            return pooled_out
+            return pooled
 
 
 def vitv2_tiny(patch_size=16, num_register_tokens=4, lora=False, **kwargs):
@@ -145,3 +170,55 @@ def vitv2_large(patch_size=16, num_register_tokens=4, lora=False, **kwargs):
         **kwargs,
     )
     return model
+
+
+if __name__ == "__main__":
+    import torch
+
+    from fomo26.utils.trainable import mark_trainable
+
+    # Quick configuration settings for testing
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    print(f"Running tests on device: {device}\n" + "=" * 50)
+
+    # 1. Define dummy input dimensions
+    # Typical 3D medical volume chunk (Batch, Channels, Depth/Slices, Height, Width)
+    B, C_in, D, H, W = 4, 1, 128, 224, 224
+    classes = 3
+    patch_size = 14
+
+    # Generate dummy input tensor
+    dummy_input = torch.randn(B, C_in, D, H, W).to(device)
+    print(f"Input Shape: {dummy_input.shape} (B={B}, C={C_in}, D={D}, H={H}, W={W})")
+    print("=" * 50)
+
+    # 2. Define tasks to test
+    tasks = ["cls", "reg", "seg", "none"]
+
+    for task in tasks:
+        print(f"\n--- Testing Task: '{task.upper()}' ---")
+        # Instantiate the model using the tiny configuration
+        model = vitv2_tiny(
+            med_in_channels=C_in,
+            task=task,
+            classes=classes,
+            patch_size=patch_size,
+            num_register_tokens=4,
+            lora=False,
+            minibatch_size=-1,
+        ).to(device)
+        trainable_names, _ = mark_trainable(model)
+
+        # Calculate parameter count
+        total_params = sum(p.numel() for p in model.parameters())
+        trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
+        print(
+            f"Model Parameters: {total_params:,} (Trainable: {trainable_params:,} = {trainable_params/total_params:.2%})"
+        )
+
+        # Forward pass
+        model.eval()
+        with torch.no_grad():
+            output = model(dummy_input)
+
+        print(f"v Success! Output shape: {output.shape}")

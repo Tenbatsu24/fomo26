@@ -6,7 +6,6 @@ from gardening_tools.modules.transforms.ringing import Torch_GibbsRinging
 from gardening_tools.modules.transforms.bias_field import Torch_BiasField
 from gardening_tools.modules.transforms.sampling import Torch_SimulateLowres
 from gardening_tools.modules.transforms.motion_ghosting import Torch_MotionGhosting
-from gardening_tools.modules.transforms.deep_supervision import Torch_DownsampleSegForDS
 from gardening_tools.modules.transforms.noise import (
     Torch_AdditiveNoise,
     Torch_MultiplicativeNoise,
@@ -35,8 +34,5 @@ def default_aug(ndim=3, deep_supervision=False):
             Torch_AdditiveNoise(p_per_channel=0.1),
         ]
     )
-
-    if deep_supervision:
-        tforms.transforms.append(Torch_DownsampleSegForDS(deep_supervision=True))
 
     return tforms

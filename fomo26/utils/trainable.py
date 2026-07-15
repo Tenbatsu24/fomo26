@@ -3,7 +3,14 @@ from torch.nn import Module
 
 def mark_trainable(
     model: Module,
-    trainable_keys=("lora_A", "lora_B", "attn_pool", "head", "input_adapter"),
+    trainable_keys=(
+        "lora_A",
+        "lora_B",
+        "attn_pool",
+        "head",
+        "input_adapter",
+        "upscale",
+    ),
 ) -> tuple:
     """
     Freeze all parameters in `model` except those whose name contains any of
