@@ -3,6 +3,7 @@ import json
 import argparse
 
 import lightning as pl
+from lightning.pytorch.loggers import CSVLogger
 
 from torchvision import transforms
 from lightning.pytorch.callbacks import ModelCheckpoint, LearningRateMonitor
@@ -124,9 +125,14 @@ def main():
 
     dataset_name = config.get("dataset_name", "CLS002_FOMO26_Infarct")
     task = get_task_from_dataset_name(dataset_name)
+    metric = "acc" if task == "cls" else "iou" if task == "seg" else "l2"
     crop_size = config.get("crop_size", [378, 378, 32])
 
     n_modalities, n_classes = get_dataset_metadata(dataset_name)
+
+    config["num_classes"] = n_classes
+    config["n_modalities"] = n_modalities
+
     train_files, val_files = load_fold(dataset_name, args.fold)
 
     model = build_model(config, task, n_modalities, n_classes)
@@ -139,17 +145,23 @@ def main():
 
     checkpoint_callback = ModelCheckpoint(
         dirpath=os.path.join(results_path, run_name, f"fold{args.fold}"),
-        filename="{epoch}-{val_loss:.4f}",
-        monitor="val_loss",
-        save_top_k=3,
-        mode="min",
+        filename=f"{{epoch}}-{{val/{metric}:.2f}}",
+        monitor=f"val/{metric}",
+        save_top_k=1,
+        mode="max" if task in ["seg", "cls"] else "min",
+    )
+    last_checkpoint_callback = ModelCheckpoint(
+        dirpath=os.path.join(results_path, run_name, f"fold{args.fold}"),
+        filename="last",
+        save_last=True,
     )
     lr_monitor = LearningRateMonitor(logging_interval="step")
+    logger = CSVLogger(results_path, name=run_name, version=f"fold{args.fold}")
 
     pl_trainer = pl.Trainer(
         max_steps=config.get("max_steps", 100_000),
         default_root_dir=os.path.join(results_path, run_name, f"fold{args.fold}"),
-        callbacks=[checkpoint_callback, lr_monitor],
+        callbacks=[checkpoint_callback, last_checkpoint_callback, lr_monitor],
         precision=config.get("precision", "bf16-mixed"),
         accelerator="auto",
         devices=config.get("devices", "auto"),
@@ -157,7 +169,8 @@ def main():
         log_every_n_steps=config.get("max_steps", 100_000) // 100,
         gradient_clip_val=config.get("gradient_clip_val", None),
         val_check_interval=config.get("max_steps", 100_000) // 10,
-        check_val_every_n_epoch=None
+        check_val_every_n_epoch=None,
+        logger=logger
     )
 
     pl_trainer.fit(trainer_module, datamodule=datamodule)

@@ -2,6 +2,8 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
+from torchmetrics.segmentation import MeanIoU, DiceScore
+
 from fomo26.trainer.base import BaseTrainer
 
 
@@ -39,6 +41,73 @@ class SegmentationTrainer(BaseTrainer):
     def __init__(self, model, config, gpu_transforms=None, norm_transforms=None):
         super().__init__(model, config, gpu_transforms, norm_transforms)
         self.criterion = DiceCELoss()
+
+        num_classes = config["num_classes"]
+
+        self.train_dice = DiceScore(
+            num_classes=num_classes,
+            average="macro",
+        )
+
+        self.val_dice = DiceScore(
+            num_classes=num_classes,
+            average="macro",
+        )
+
+        self.val_iou = MeanIoU(
+            num_classes=num_classes,
+        )
+
+    def on_train_epoch_start(self) -> None:
+        self.train_dice.reset()
+        self.val_dice.reset()
+        self.val_iou.reset()
+
+    def log_train_metrics(self, outputs, batch):
+        preds = outputs.argmax(dim=1)
+        target = batch["label"]
+
+        if target.ndim == preds.ndim + 1:
+            target = target.squeeze(1)
+
+        self.train_dice(preds, target)
+
+        self.log(
+            "train/dice",
+            self.train_dice,
+            on_step=True,
+            on_epoch=False,
+            prog_bar=True,
+            sync_dist=True,
+        )
+
+    def log_val_metrics(self, outputs, batch):
+        preds = outputs.argmax(dim=1)
+        target = batch["label"]
+
+        if target.ndim == preds.ndim + 1:
+            target = target.squeeze(1)
+
+        self.val_dice(preds, target)
+        self.val_iou(preds, target)
+
+        self.log(
+            "val/dice",
+            self.val_dice,
+            on_step=False,
+            on_epoch=True,
+            prog_bar=True,
+            sync_dist=True,
+        )
+
+        self.log(
+            "val/iou",
+            self.val_iou,
+            on_step=False,
+            on_epoch=True,
+            prog_bar=True,
+            sync_dist=True,
+        )
 
     def forward(self, x):
         return self.model(x)

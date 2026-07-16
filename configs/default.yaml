@@ -10,8 +10,8 @@ pretrained:
 
 data:
   dataset_name: CLS002_FOMO26_Infarct
-  crop_size: [224, 224, 16]
-  batch_size: 2
+  crop_size: [378, 378, 32]
+  batch_size: 1
   num_workers: 1
 
 optim:

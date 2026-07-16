@@ -108,30 +108,44 @@ class BaseTrainer(pl.LightningModule, ABC):
     def compute_loss(self, outputs, batch):
         raise NotImplementedError("Subclasses must implement the compute_loss method.")
 
+    def log_train_metrics(self, outputs, batch):
+        pass
+
+    def log_val_metrics(self, outputs, batch):
+        pass
+
     def training_step(self, batch, batch_idx):
         batch = self.apply_gpu_transforms(batch, training=True)
         outputs = self.forward(batch["image"])
         loss = self.compute_loss(outputs, batch)
+
         self.log(
-            "train_loss",
+            "train/loss",
             loss,
             on_step=True,
-            on_epoch=True,
+            on_epoch=False,
             prog_bar=True,
             sync_dist=True,
         )
+
+        self.log_train_metrics(outputs, batch)
+
         return loss
 
     def validation_step(self, batch, batch_idx):
         batch = self.apply_gpu_transforms(batch, training=False)
         outputs = self.forward(batch["image"])
         loss = self.compute_loss(outputs, batch)
+
         self.log(
-            "val_loss",
+            "val/loss",
             loss,
             on_step=False,
             on_epoch=True,
             prog_bar=True,
             sync_dist=True,
         )
+
+        self.log_val_metrics(outputs, batch)
+
         return loss

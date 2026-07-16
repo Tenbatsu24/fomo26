@@ -1,6 +1,7 @@
 from typing import Literal
 from functools import partial
 
+import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
@@ -179,8 +180,6 @@ def vitv2_large(patch_size=16, num_register_tokens=4, lora=False, **kwargs):
 
 
 if __name__ == "__main__":
-    import torch
-
     from fomo26.utils.trainable import mark_trainable
 
     # Quick configuration settings for testing
