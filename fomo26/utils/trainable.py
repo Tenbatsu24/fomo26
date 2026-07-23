@@ -11,6 +11,7 @@ def mark_trainable(
         "input_adapter",
         "upscale",
     ),
+    additional_keys=None,
 ) -> tuple:
     """
     Freeze all parameters in `model` except those whose name contains any of
@@ -23,14 +24,21 @@ def mark_trainable(
         trainable_keys: substrings to match against each parameter's
                          (dotted) name. A parameter is set trainable if ANY
                          key is a substring of its name.
+        additional_keys: optional list of additional substrings to match against
+                         each parameter's name. This is useful for cases where
+                         you want to add extra trainable parameters that are not
+                         part of the default set of keys.
 
     Returns:
         (trainable_names, frozen_names) -- lists of parameter names in each
         group, handy for logging/sanity-checking what actually got unfrozen.
     """
+    all_trainable_keys = set(trainable_keys) | (
+        set(additional_keys) if additional_keys else set()
+    )
     trainable_names, frozen_names = [], []
     for name, param in model.named_parameters():
-        if any(key in name for key in trainable_keys):
+        if any(key in name for key in all_trainable_keys):
             param.requires_grad = True
             trainable_names.append(name)
         else:

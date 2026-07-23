@@ -5,7 +5,7 @@ from abc import ABC, abstractmethod
 import torch
 import lightning as pl
 
-from torch.optim import AdamW
+from torch.optim import AdamW, SGD
 from torch.optim.lr_scheduler import LambdaLR
 
 from fomo26.utils.trainable import mark_trainable
@@ -21,8 +21,8 @@ class BaseTrainer(pl.LightningModule, ABC):
         self.norm_transforms = norm_transforms
         self.save_hyperparameters(ignore=["model", "gpu_transforms", "norm_transforms"])
         self.load_pretrained_checkpoint()
-        if self.config.get("lora", False):
-            mark_trainable(self.model)
+
+        mark_trainable(self.model, additional_keys=self.model.additional_trainable())
 
     def load_pretrained_checkpoint(self):
         ckpt_path = self.config.get("checkpoint", None)
@@ -36,7 +36,10 @@ class BaseTrainer(pl.LightningModule, ABC):
             state_dict = state_dict["state_dict"]
         if self.config.get("lora", False):
             missing, unexpected = load_lora_state_dict(
-                self.model, state_dict, strict=False
+                self.model,
+                state_dict,
+                strict=False,
+                ignore_loading=self.model.do_not_load(),
             )
         else:
             missing, unexpected = self.model.load_state_dict(state_dict, strict=False)
@@ -46,10 +49,6 @@ class BaseTrainer(pl.LightningModule, ABC):
         )
 
     def configure_optimizers(self):
-        weight_decay = self.config.get("weight_decay", 0.05)
-        lr = self.config.get("lr", 1e-4)
-        betas = tuple(self.config.get("betas", (0.9, 0.999)))
-
         decay, no_decay = [], []
         for name, param in self.named_parameters():
             if not param.requires_grad:
@@ -59,14 +58,32 @@ class BaseTrainer(pl.LightningModule, ABC):
             else:
                 decay.append(param)
 
-        optimizer = AdamW(
-            [
-                {"params": decay, "weight_decay": weight_decay},
-                {"params": no_decay, "weight_decay": 0.0},
-            ],
-            lr=lr,
-            betas=betas,
-        )
+        if self.config.get("opt", "AdamW") == "AdamW":
+            weight_decay = self.config.get("weight_decay", 0.05)
+            lr = self.config.get("lr", 1e-4)
+            betas = tuple(self.config.get("betas", (0.9, 0.999)))
+
+            optimizer = AdamW(
+                [
+                    {"params": decay, "weight_decay": weight_decay},
+                    {"params": no_decay, "weight_decay": 0.0},
+                ],
+                lr=lr,
+                betas=betas,
+            )
+        else:
+            weight_decay = self.config.get("weight_decay", 1e-5)
+            lr = self.config.get("lr", 1e-3)
+
+            optimizer = SGD(
+                [
+                    {"params": decay, "weight_decay": weight_decay},
+                    {"params": no_decay, "weight_decay": 0.0},
+                ],
+                lr=lr,
+                momentum=0.9,
+                nesterov=True,
+            )
 
         total_steps = self.config.get("total_steps", None)
         if total_steps is None:

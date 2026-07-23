@@ -414,6 +414,12 @@ class ViTv2(nn.Module):
                 _, attn = blk(x, return_attention=True)
                 return attn
 
+    def additional_trainable(self):
+        return None
+
+    def do_not_load(self):
+        return None
+
 
 def init_weights_vit(module: nn.Module, name: str = ""):
     if isinstance(module, nn.Linear):

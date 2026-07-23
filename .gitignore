@@ -298,7 +298,7 @@ cython_debug/
 .idea/
 
 data/
-models/
+checkpoints/
 results/
 preprocessed/
 

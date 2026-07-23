@@ -35,7 +35,11 @@ def convert_state_dict(
         new_state_dict = {}
         for key, value in state_dict.items():
             m = pattern.match(key)
-            new_key = f"{m.group('prefix')}.base.{m.group('suffix')}" if m else key
+            new_key = (
+                f"{m.group('prefix')}.base.{m.group('suffix')}"
+                if m and ("patch_embed" not in key)
+                else key
+            )
             new_state_dict[new_key] = value
         return new_state_dict
 
@@ -80,9 +84,7 @@ def merge_all_lora(model: nn.Module) -> int:
 
 
 def load_lora_state_dict(
-    model: nn.Module,
-    state_dict: dict,
-    strict: bool = False,
+    model: nn.Module, state_dict: dict, strict: bool = False, ignore_loading=None
 ) -> tuple:
     """
     Convenience wrapper: remaps a plain-Attention checkpoint's keys to the
@@ -99,8 +101,15 @@ def load_lora_state_dict(
         (missing_keys, unexpected_keys) as returned by `load_state_dict`.
     """
     remapped = convert_state_dict(state_dict, to_lora=True)
-    print(list(remapped.keys()))
-    result = model.load_state_dict(remapped, strict=strict)
+    if ignore_loading is not None:
+        filtered_state_dict = {
+            k: v
+            for k, v in remapped.items()
+            if all(ig not in k for ig in ignore_loading)
+        }
+    else:
+        filtered_state_dict = remapped
+    result = model.load_state_dict(filtered_state_dict, strict=strict)
 
     missing_lora = [k for k in result.missing_keys if "lora_A" in k or "lora_B" in k]
     missing_other = [k for k in result.missing_keys if k not in missing_lora]

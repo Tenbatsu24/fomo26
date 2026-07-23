@@ -19,14 +19,18 @@ class ViTv2Adaption(ViTv2):
         med_in_channels: int,
         task: Literal["reg", "cls", "seg"],
         classes,
-        minibatch_size: int,
         *args,
+        volume_size=None,
+        volume_patch_size=None,
         **kwargs,
     ):
         super(ViTv2Adaption, self).__init__(*args, **kwargs)
+        if volume_size is not None or volume_patch_size is not None:
+            print(
+                f"Warning: {volume_size=} and {volume_patch_size=} are not used in this 2D adaptation. Ignored."
+            )
 
         self.task = task
-        self.minibatch_size = minibatch_size
 
         if task in ["reg", "cls", "seg"]:
             self.input_adapter = InputChannelAdapter(in_channels=med_in_channels)
@@ -58,29 +62,14 @@ class ViTv2Adaption(ViTv2):
         # go from 3d to folding depth into batch axes
         reshaped_x = rearrange(adapted_x, "b c ... d -> (b d) c ...")
 
-        if self.minibatch_size > 0:
-            outs = {"patch_latent": [], "latent": []}
-            for start in range(0, b * d, self.minibatch_size):
-                minibatch = reshaped_x[start : start + self.minibatch_size]
-                out = super().forward(
-                    minibatch,
-                    masks=masks,
-                    last_self_attention=last_self_attention,
-                    **kwargs,
-                )
-                outs["patch_latent"].append(out["patch_latent"])
-                outs["latent"].append(out["latent"])
-            latents = torch.concat(outs["latent"], dim=0)
-            patch_latents = torch.concat(outs["patch_latent"], dim=0)
-        else:
-            out = super().forward(
-                reshaped_x,
-                masks=masks,
-                last_self_attention=last_self_attention,
-                **kwargs,
-            )
-            latents = out["latent"]
-            patch_latents = out["patch_latent"]
+        out = super().forward(
+            reshaped_x,
+            masks=masks,
+            last_self_attention=last_self_attention,
+            **kwargs,
+        )
+        latents = out["latent"]
+        patch_latents = out["patch_latent"]
 
         if self.task in ["reg", "cls"]:
             reshaped_out = rearrange(patch_latents, "(b d) n c -> b (d n) c", b=b)
@@ -107,11 +96,11 @@ class ViTv2Adaption(ViTv2):
             return pooled
 
 
-def vitv2_tiny(patch_size=16, num_register_tokens=4, lora=False, **kwargs):
+def vitv2_a_2d_tiny(lora=False, **kwargs):
     if "init_values" not in kwargs:
         kwargs["init_values"] = 0.1
     model = ViTv2Adaption(
-        patch_size=patch_size,
+        patch_size=14,
         embed_dim=192,
         depth=12,
         num_heads=3,
@@ -119,17 +108,17 @@ def vitv2_tiny(patch_size=16, num_register_tokens=4, lora=False, **kwargs):
         block_fn=partial(
             Block, attn_class=LoRAMemEffAttention if lora else MemEffAttention
         ),
-        num_register_tokens=num_register_tokens,
+        num_register_tokens=4,
         **kwargs,
     )
     return model
 
 
-def vitv2_small(patch_size=16, num_register_tokens=4, lora=False, **kwargs):
+def vitv2_a_2d_small(lora=False, **kwargs):
     if "init_values" not in kwargs:
         kwargs["init_values"] = 0.1
     model = ViTv2Adaption(
-        patch_size=patch_size,
+        patch_size=14,
         embed_dim=384,
         depth=12,
         num_heads=6,
@@ -137,17 +126,17 @@ def vitv2_small(patch_size=16, num_register_tokens=4, lora=False, **kwargs):
         block_fn=partial(
             Block, attn_class=LoRAMemEffAttention if lora else MemEffAttention
         ),
-        num_register_tokens=num_register_tokens,
+        num_register_tokens=4,
         **kwargs,
     )
     return model
 
 
-def vitv2_base(patch_size=16, num_register_tokens=4, lora=False, **kwargs):
+def vitv2_a_2d_base(lora=False, **kwargs):
     if "init_values" not in kwargs:
         kwargs["init_values"] = 0.1
     model = ViTv2Adaption(
-        patch_size=patch_size,
+        patch_size=14,
         embed_dim=768,
         depth=12,
         num_heads=12,
@@ -155,17 +144,17 @@ def vitv2_base(patch_size=16, num_register_tokens=4, lora=False, **kwargs):
         block_fn=partial(
             Block, attn_class=LoRAMemEffAttention if lora else MemEffAttention
         ),
-        num_register_tokens=num_register_tokens,
+        num_register_tokens=4,
         **kwargs,
     )
     return model
 
 
-def vitv2_large(patch_size=16, num_register_tokens=4, lora=False, **kwargs):
+def vitv2_a_2d_large(lora=False, **kwargs):
     if "init_values" not in kwargs:
         kwargs["init_values"] = 1e-5
     model = ViTv2Adaption(
-        patch_size=patch_size,
+        patch_size=14,
         embed_dim=1024,
         depth=24,
         num_heads=16,
@@ -173,7 +162,7 @@ def vitv2_large(patch_size=16, num_register_tokens=4, lora=False, **kwargs):
         block_fn=partial(
             Block, attn_class=LoRAMemEffAttention if lora else MemEffAttention
         ),
-        num_register_tokens=num_register_tokens,
+        num_register_tokens=4,
         **kwargs,
     )
     return model
@@ -203,14 +192,13 @@ if __name__ == "__main__":
     for task in tasks:
         print(f"\n--- Testing Task: '{task.upper()}' ---")
         # Instantiate the model using the tiny configuration
-        model = vitv2_tiny(
+        model = vitv2_a_2d_tiny(
             med_in_channels=C_in,
             task=task,
             classes=classes,
             patch_size=patch_size,
             num_register_tokens=4,
             lora=False,
-            minibatch_size=-1,
         ).to(device)
         trainable_names, _ = mark_trainable(model)
 

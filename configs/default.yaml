@@ -1,12 +1,10 @@
 model:
-  model_variant: small
-  patch_size: 14
-  num_register_tokens: 4
-  minibatch_size: -1
+  model_variant: 3d
+  model_size: small
   lora: true
 
 pretrained:
-  checkpoint: /mnt/c/Users/puruv/Projects/fomo26/models/small/neco/encoder_teacher.ckpt
+  checkpoint: /mnt/c/Users/puruv/Projects/fomo26/checkpoints/small/neco/encoder_teacher.ckpt
 
 data:
   dataset_name: CLS002_FOMO26_Infarct
@@ -15,10 +13,7 @@ data:
   num_workers: 1
 
 optim:
-  lr: 0.0001
-  weight_decay: 0.05
-  betas: [0.9, 0.999]
-  total_steps: null
+  opt: SGD
 
 trainer:
   max_steps: 100

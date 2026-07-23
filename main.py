@@ -17,15 +17,32 @@ from fomo26.paths import get_results_path, get_config_path
 from fomo26.trainer.segmentation import SegmentationTrainer
 from fomo26.trainer.classification import ClassificationTrainer
 from fomo26.utils.dataset import get_dataset_metadata, load_fold
-from fomo26.models.extended import vitv2_tiny, vitv2_small, vitv2_base, vitv2_large
 from fomo26.modules.data_modules.training import SegDataModule, ClsRegDataModule
+from fomo26.models import (
+    vitv2_a_2d_tiny,
+    vitv2_a_2d_small,
+    vitv2_a_2d_base,
+    vitv2_a_2d_large,
+    vitv2_a_3d_tiny,
+    vitv2_a_3d_small,
+    vitv2_a_3d_base,
+    vitv2_a_3d_large
+)
 
 
 MODEL_BUILDERS = {
-    "tiny": vitv2_tiny,
-    "small": vitv2_small,
-    "base": vitv2_base,
-    "large": vitv2_large,
+    "2d": {
+        "tiny": vitv2_a_2d_tiny,
+        "small": vitv2_a_2d_small,
+        "base": vitv2_a_2d_base,
+        "large": vitv2_a_2d_large,
+    },
+    "3d": {
+        "tiny": vitv2_a_3d_tiny,
+        "small": vitv2_a_3d_small,
+        "base": vitv2_a_3d_base,
+        "large": vitv2_a_3d_large,
+    }
 }
 
 TRAINER_CLASSES = {
@@ -63,17 +80,26 @@ def build_cpu_transforms(crop_size, training):
 
 
 def build_model(config, task, n_modalities, n_classes):
-    variant = config.get("model_variant", "small")
-    builder = MODEL_BUILDERS[variant]
-    return builder(
-        med_in_channels=n_modalities,
-        task=task,
-        classes=n_classes,
-        minibatch_size=config.get("minibatch_size", -1),
-        patch_size=config.get("patch_size", 16),
-        num_register_tokens=config.get("num_register_tokens", 4),
-        lora=config.get("lora", False),
-    )
+    variant = config.get("model_variant", "2d")
+    variant_dict = MODEL_BUILDERS[variant]
+    size = config.get("model_size", "small")
+    builder = variant_dict[size]
+    if variant == "2d":
+        return builder(
+            med_in_channels=n_modalities,
+            task=task,
+            classes=n_classes,
+            lora=config.get("lora", False),
+        )
+    else:
+        return builder(
+            volume_size=config.get("crop_size", (378, 378, 32)),
+            volume_patch_size=config.get("volume_patch_size", (14, 14, 2)),
+            med_in_channels=n_modalities,
+            task=task,
+            classes=n_classes,
+            lora=config.get("lora", False),
+        )
 
 
 def build_datamodule(config, task, train_files, val_files, crop_size):
@@ -139,7 +165,12 @@ def main():
     datamodule = build_datamodule(config, task, train_files, val_files, crop_size)
     trainer_module = build_trainer_module(config, task, model)
 
-    run_name = get_run_name(dataset_name, config.get("model_variant", "small"), config.get("lora", False))
+    run_name = get_run_name(
+        dataset_name,
+        config.get("model_variant", "small"),
+        config.get("model_size", "2d"),
+        config.get("lora", False)
+    )
 
     results_path = get_results_path()
 

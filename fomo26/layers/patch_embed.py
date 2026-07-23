@@ -15,7 +15,7 @@ def make_2tuple(x):
         return x
 
     assert isinstance(x, int)
-    return (x, x)
+    return x, x
 
 
 class PatchEmbed(nn.Module):

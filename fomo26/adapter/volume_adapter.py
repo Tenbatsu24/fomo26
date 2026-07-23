@@ -1,5 +1,46 @@
+import math
+
 import torch
 import torch.nn as nn
+
+
+def init_close_to_identity_or_mean(
+    module: nn.Module, standard_init_noise: float = 1e-4
+):
+    """
+    Initializes a Conv3d network so that its initial output closely tracks
+    the input state (acting as an identity/mean mapping with subtle asymmetry noise).
+    """
+    for m in module.modules():
+        if isinstance(m, nn.Conv3d):
+            out_c, in_c, d, h, w = m.weight.shape
+
+            # 1. Zero out the weights to build our clean baseline template
+            nn.init.constant_(m.weight, 0.0)
+
+            # Find the center spatial index of the 3D kernel (e.g., index 1 for a 3x3x3 kernel)
+            cd, ch, cw = d // 2, h // 2, w // 2
+
+            # 2. Setup the channel routing strategy
+            for o in range(out_c):
+                if in_c == out_c:
+                    # Perfect identity shortcut mapping per channel
+                    m.weight.data[o, o, cd, ch, cw] = 1.0
+                else:
+                    # Channel count mismatch: evenly distribute input channel features
+                    # This acts as an average/mean mapping across the channel dimension
+                    for i in range(in_c):
+                        m.weight.data[o, i, cd, ch, cw] = 1.0 / in_c
+
+            # 3. Add a tiny amount of noise to break symmetry (helps backprop)
+            # without disrupting the identity/mean filter behavior
+            if standard_init_noise > 0:
+                noise = torch.randn_like(m.weight) * standard_init_noise
+                m.weight.data.add_(noise)
+
+            # 4. Strictly zero out biases so they don't introduce intensity shifts
+            if m.bias is not None:
+                nn.init.constant_(m.bias, 0.0)
 
 
 class InputChannelAdapter(nn.Module):
@@ -63,6 +104,7 @@ class InputChannelAdapter(nn.Module):
             nn.Conv3d(c_in, out_channels, kernel_size=kernel_size, padding=padding)
         )
         self.net = nn.Sequential(*layers)
+        init_close_to_identity_or_mean(self, standard_init_noise=1e-4)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """
