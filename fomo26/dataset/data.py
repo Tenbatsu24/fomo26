@@ -162,6 +162,7 @@ class MedicalTaskDataset(Dataset):
     def __init__(
         self,
         root: str | Path,
+        split: str = "train",
         fold: Optional[int] = None,
         seed: Optional[int] = None,
         n_splits: int = 5,
@@ -169,6 +170,7 @@ class MedicalTaskDataset(Dataset):
         return_paths: bool = False,
     ):
         self.root = Path(root)
+        self.split = split
         self.task_dir = self.root / self.FOLDER_NAME
 
         self.transform = transform
@@ -428,11 +430,14 @@ class MedicalTaskDataset(Dataset):
 
             splits = splitter.split(indices)
 
-        for current_fold, (_, test_indices) in enumerate(splits):
+        for current_fold, (train_indices, test_indices) in enumerate(splits):
 
             if current_fold == self.fold:
 
-                selected_indices = test_indices
+                if self.split == "train":
+                    selected_indices = train_indices
+                else:
+                    selected_indices = test_indices
 
                 LOGGER.info(
                     "%s | fold=%d | seed=%d | selected=%d",
@@ -471,7 +476,7 @@ class MedicalTaskDataset(Dataset):
             images.append(image)
 
         # Shape:
-        #   [C, D, H, W]
+        #   [C, H, W, D]
         image = np.stack(images, axis=0)
 
         target = sample["target"]
@@ -515,7 +520,12 @@ class MedicalTaskDataset(Dataset):
                 sample_dict["mask_path"] = sample["target"]
 
         if self.transform is not None:
+            # print(f"transform: {self.transform}")
+            # print({k: v.shape if isinstance(v, torch.Tensor) else [] for k, v in sample_dict.items()})
             sample_dict = self.transform(sample_dict)
+            # print({k: v.shape if isinstance(v, torch.Tensor) else [] for k, v in sample_dict.items()})
+        # else:
+        #     print(f"No transform: {self.transform}")
 
         return sample_dict
 
@@ -948,11 +958,6 @@ class MedicalTaskDataset(Dataset):
         plt.close(fig)
 
 
-# =============================================================================
-# Task 1 — Infarct Classification
-# =============================================================================
-
-
 class Task1InfarctClassification(MedicalTaskDataset):
 
     FOLDER_NAME = "Task_1"
@@ -974,11 +979,6 @@ class Task1InfarctClassification(MedicalTaskDataset):
     MASK_FILENAME = None
 
 
-# =============================================================================
-# Task 2 — Meningioma Segmentation
-# =============================================================================
-
-
 class Task2MeningiomaSegmentation(MedicalTaskDataset):
 
     FOLDER_NAME = "Task_2"
@@ -998,12 +998,6 @@ class Task2MeningiomaSegmentation(MedicalTaskDataset):
 
     MASK_FILENAME = "seg.nii.gz"
 
-
-# =============================================================================
-# Task 3 — Brain Age Regression
-# =============================================================================
-
-
 class Task3BrainAgeRegression(MedicalTaskDataset):
 
     FOLDER_NAME = "Task_3"
@@ -1021,11 +1015,6 @@ class Task3BrainAgeRegression(MedicalTaskDataset):
     MASK_FILENAME = None
 
 
-# =============================================================================
-# Task 4 — Trigeminal Neuralgia Segmentation
-# =============================================================================
-
-
 class Task4TrigeminalNeuralgiaSegmentation(MedicalTaskDataset):
 
     FOLDER_NAME = "Task_4"
@@ -1041,11 +1030,6 @@ class Task4TrigeminalNeuralgiaSegmentation(MedicalTaskDataset):
     LABEL_FILENAME = None
 
     MASK_FILENAME = "seg.nii.gz"
-
-
-# =============================================================================
-# Task 5 — Polymicrogyria Classification
-# =============================================================================
 
 
 class Task5PolymicrogyriaClassification(MedicalTaskDataset):

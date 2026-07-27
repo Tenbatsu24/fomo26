@@ -19,7 +19,7 @@ class ClassificationTrainer(BaseTrainer):
 
     def log_train_metrics(self, outputs, batch):
         preds = outputs.argmax(dim=1)
-        target = batch["CLSREG_label"].long().squeeze(-1)
+        target = batch["target"].long().squeeze(-1)
 
         self.train_acc(preds, target)
 
@@ -34,7 +34,7 @@ class ClassificationTrainer(BaseTrainer):
 
     def log_val_metrics(self, outputs, batch):
         preds = outputs.argmax(dim=1)
-        target = batch["CLSREG_label"].long().squeeze(-1)
+        target = batch["target"].long().squeeze(-1)
 
         self.val_acc(preds, target)
 
@@ -51,5 +51,5 @@ class ClassificationTrainer(BaseTrainer):
         return self.model(x)
 
     def compute_loss(self, outputs, batch):
-        labels = batch["CLSREG_label"].long().squeeze(-1)
+        labels = batch["target"].long().squeeze(-1)
         return self.criterion(outputs, labels)

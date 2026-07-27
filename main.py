@@ -3,9 +3,9 @@ import json
 import argparse
 
 import lightning as pl
-from lightning.pytorch.loggers import CSVLogger
 
 from torchvision import transforms
+from lightning.pytorch.loggers import CSVLogger
 from lightning.pytorch.callbacks import ModelCheckpoint, LearningRateMonitor
 from gardening_tools.modules.transforms.cropping_and_padding import Torch_CropPad, Torch_CenterCrop
 
@@ -13,10 +13,16 @@ from fomo26.utils.naming import get_run_name
 from fomo26.utils.config import load_yaml_config
 from fomo26.trainer.regression import RegressionTrainer
 from fomo26.aug.default import default_aug, default_norm
-from fomo26.paths import get_results_path, get_config_path
+from fomo26.paths import get_results_path, get_config_path, get_data_path
 from fomo26.trainer.segmentation import SegmentationTrainer
 from fomo26.trainer.classification import ClassificationTrainer
-from fomo26.utils.dataset import get_dataset_metadata, load_fold
+from fomo26.dataset import (
+    Task1InfarctClassification,
+    Task2MeningiomaSegmentation,
+    Task3BrainAgeRegression,
+    Task4TrigeminalNeuralgiaSegmentation,
+    Task5PolymicrogyriaClassification,
+)
 from fomo26.modules.data_modules.training import SegDataModule, ClsRegDataModule
 from fomo26.models import (
     vitv2_a_2d_tiny,
@@ -46,9 +52,17 @@ MODEL_BUILDERS = {
 }
 
 TRAINER_CLASSES = {
-    "cls": ClassificationTrainer,
-    "reg": RegressionTrainer,
-    "seg": SegmentationTrainer,
+    "classification": ClassificationTrainer,
+    "regression": RegressionTrainer,
+    "segmentation": SegmentationTrainer,
+}
+
+DATASET_CLASSES = {
+    "CLS002_FOMO26_Infarct": Task1InfarctClassification,
+    "SEG002_Meningioma": Task2MeningiomaSegmentation,
+    "REG002_BrainAge": Task3BrainAgeRegression,
+    "SEG002_TrigeminalNeuralgia": Task4TrigeminalNeuralgiaSegmentation,
+    "CLS002_Polymicrogyria": Task5PolymicrogyriaClassification,
 }
 
 
@@ -62,6 +76,16 @@ def get_task_from_dataset_name(dataset_name):
         return "seg"
     else:
         raise ValueError(f"Cannot infer task from dataset name: {dataset_name}")
+
+
+def get_dataset_class(dataset_name):
+    cls = DATASET_CLASSES.get(dataset_name)
+    if cls is None:
+        raise ValueError(
+            f"Unknown dataset: {dataset_name}. "
+            f"Known datasets: {list(DATASET_CLASSES.keys())}"
+        )
+    return cls
 
 
 def load_config(config_path):
@@ -102,16 +126,19 @@ def build_model(config, task, n_modalities, n_classes):
         )
 
 
-def build_datamodule(config, task, train_files, val_files, crop_size):
+def build_datamodule(config, task, dataset_class, data_root, fold, seed):
+    crop_size = config.get("crop_size", [378, 378, 32])
     train_cpu_transforms = build_cpu_transforms(crop_size, training=True)
     val_cpu_transforms = build_cpu_transforms(crop_size, training=False)
 
-    if task == "seg":
+    if task == "segmentation":
         return SegDataModule(
             batch_size=config.get("batch_size", 2),
             num_workers=config.get("num_workers", 2),
-            train_split=train_files,
-            val_split=val_files,
+            dataset_class=dataset_class,
+            root=data_root,
+            fold=fold,
+            seed=seed,
             train_transforms=train_cpu_transforms,
             val_transforms=val_cpu_transforms,
         )
@@ -119,8 +146,10 @@ def build_datamodule(config, task, train_files, val_files, crop_size):
         return ClsRegDataModule(
             batch_size=config.get("batch_size", 8),
             num_workers=config.get("num_workers", 2),
-            train_split=train_files,
-            val_split=val_files,
+            dataset_class=dataset_class,
+            root=data_root,
+            fold=fold,
+            seed=seed,
             train_transforms=train_cpu_transforms,
             val_transforms=val_cpu_transforms,
         )
@@ -150,19 +179,22 @@ def main():
     config = load_yaml_config(config_path)
 
     dataset_name = config.get("dataset_name", "CLS002_FOMO26_Infarct")
-    task = get_task_from_dataset_name(dataset_name)
-    metric = "acc" if task == "cls" else "iou" if task == "seg" else "l2"
-    crop_size = config.get("crop_size", [378, 378, 32])
+    dataset_class = get_dataset_class(dataset_name)
+    task = dataset_class.TASK_TYPE
+    metric = "acc" if task == "classification" else "iou" if task == "segmentation" else "l2"
 
-    n_modalities, n_classes = get_dataset_metadata(dataset_name)
+    n_modalities = dataset_class.NUM_MODALITIES
+    n_classes = dataset_class.NUM_CLASSES
 
     config["num_classes"] = n_classes
     config["n_modalities"] = n_modalities
 
-    train_files, val_files = load_fold(dataset_name, args.fold)
+    data_root = config.get("data_root", get_data_path())
+    fold = args.fold
+    seed = config.get("seed", 42)
 
     model = build_model(config, task, n_modalities, n_classes)
-    datamodule = build_datamodule(config, task, train_files, val_files, crop_size)
+    datamodule = build_datamodule(config, task, dataset_class, data_root, fold, seed)
     trainer_module = build_trainer_module(config, task, model)
 
     run_name = get_run_name(

@@ -18,7 +18,7 @@ class RegressionTrainer(BaseTrainer):
         self.val_l2.reset()
 
     def log_train_metrics(self, outputs, batch):
-        labels = batch["CLSREG_label"].float()
+        labels = batch["target"].float()
 
         self.train_l2(outputs, labels)
 
@@ -32,7 +32,7 @@ class RegressionTrainer(BaseTrainer):
         )
 
     def log_val_metrics(self, outputs, batch):
-        labels = batch["CLSREG_label"].float()
+        labels = batch["target"].float()
 
         self.val_l2(outputs, labels)
 
@@ -49,5 +49,5 @@ class RegressionTrainer(BaseTrainer):
         return self.model(x)
 
     def compute_loss(self, outputs, batch):
-        labels = batch["CLSREG_label"].float()
+        labels = batch["target"].float()
         return self.criterion(outputs, labels)
