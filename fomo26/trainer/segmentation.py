@@ -65,7 +65,7 @@ class SegmentationTrainer(BaseTrainer):
 
     def log_train_metrics(self, outputs, batch):
         preds = outputs.argmax(dim=1)
-        target = batch["target"]
+        target = batch["label"]
 
         if target.ndim == preds.ndim + 1:
             target = target.squeeze(1)
@@ -84,7 +84,7 @@ class SegmentationTrainer(BaseTrainer):
 
     def log_val_metrics(self, outputs, batch):
         preds = outputs.argmax(dim=1)
-        target = batch["target"]
+        target = batch["label"]
 
         if target.ndim == preds.ndim + 1:
             target = target.squeeze(1)
@@ -116,4 +116,4 @@ class SegmentationTrainer(BaseTrainer):
         return self.model(x)
 
     def compute_loss(self, outputs, batch):
-        return self.criterion(outputs, batch["target"])
+        return self.criterion(outputs, batch["label"])

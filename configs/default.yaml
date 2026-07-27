@@ -3,21 +3,21 @@ model:
   model_size: small
   lora: true
 
-#pretrained:
-#  checkpoint: /mnt/c/Users/puruv/Projects/fomo26/checkpoints/small/neco/encoder_teacher.ckpt
+pretrained:
+  checkpoint: small/neco/encoder_teacher.ckpt
 
 data:
   dataset_name: CLS002_FOMO26_Infarct
-  crop_size: [378, 378, 32]
-  batch_size: 1
+  crop_size: [224, 224, 32]
+  batch_size: 4
   num_workers: 1
 
 optim:
   opt: SGD
 
 trainer:
-  max_steps: 100
-  precision: bf16-mixed
+  max_steps: 250
+  precision: 32-true
   devices: auto
   strategy: auto
   gradient_clip_val: 3.0

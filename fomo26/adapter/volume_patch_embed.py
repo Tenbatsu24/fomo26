@@ -6,7 +6,7 @@ import torch
 import torch.nn as nn
 
 
-def make_3tuple(x):
+def make_3tuple(x) -> tuple[int, int, int]:
     if isinstance(x, tuple) or isinstance(x, list):
         assert len(x) == 3
         return tuple(x)
@@ -30,8 +30,8 @@ class PatchEmbed3D(nn.Module):
 
     def __init__(
         self,
-        img_size: Union[int, Tuple[int, int, int]] = (224, 224, 16),
-        patch_size: Union[int, Tuple[int, int, int]] = (16, 16, 2),
+        img_size: Union[int, Tuple[int, int, int]] = (224, 224, 32),
+        patch_size: Union[int, Tuple[int, int, int]] = (14, 14, 2),
         in_chans: int = 3,
         embed_dim: int = 768,
         norm_layer: Callable | None = None,

@@ -367,7 +367,7 @@ class MedicalTaskDataset(Dataset):
                 {
                     "subject": subject_dir.name,
                     "image_paths": image_paths,
-                    "target": target,
+                    "label": target,
                 }
             )
 
@@ -410,7 +410,7 @@ class MedicalTaskDataset(Dataset):
 
         if self.TASK_TYPE == "classification":
 
-            labels = np.asarray([int(sample["target"]) for sample in samples])
+            labels = np.asarray([int(sample["label"]) for sample in samples])
 
             splitter = StratifiedKFold(
                 n_splits=self.n_splits,
@@ -479,12 +479,12 @@ class MedicalTaskDataset(Dataset):
         #   [C, H, W, D]
         image = np.stack(images, axis=0)
 
-        target = sample["target"]
+        target = sample["label"]
 
         if self.TASK_TYPE == "segmentation":
 
             target, _, _ = load_nifti(target)
-            target = ensure_3d(target, sample["target"])
+            target = ensure_3d(target, sample["label"])
 
             target = torch.from_numpy(target.astype(np.int64))
 
@@ -509,7 +509,7 @@ class MedicalTaskDataset(Dataset):
 
         sample_dict = {
             "image": image,
-            "target": target,
+            "label": target,
             "subject": sample["subject"],
         }
 
@@ -517,7 +517,7 @@ class MedicalTaskDataset(Dataset):
             sample_dict["image_paths"] = sample["image_paths"]
 
             if self.TASK_TYPE == "segmentation":
-                sample_dict["mask_path"] = sample["target"]
+                sample_dict["mask_path"] = sample["label"]
 
         if self.transform is not None:
             # print(f"transform: {self.transform}")
@@ -873,13 +873,13 @@ class MedicalTaskDataset(Dataset):
             if self.TASK_TYPE == "segmentation":
 
                 mask, _, _ = load_nifti(
-                    sample["target"],
+                    sample["label"],
                     preprocess=False,
                 )
 
                 mask = ensure_3d(
                     mask,
-                    sample["target"],
+                    sample["label"],
                 )
 
                 mask_sum_per_depth = np.sum(
@@ -933,7 +933,7 @@ class MedicalTaskDataset(Dataset):
 
             if self.TASK_TYPE != "segmentation":
 
-                target = sample["target"]
+                target = sample["label"]
 
                 target_text = (
                     f"class={int(target)}"

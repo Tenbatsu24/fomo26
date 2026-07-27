@@ -1,5 +1,6 @@
 import math
 
+from pathlib import Path
 from abc import ABC, abstractmethod
 
 import torch
@@ -8,6 +9,7 @@ import lightning as pl
 from torch.optim import AdamW, SGD
 from torch.optim.lr_scheduler import LambdaLR
 
+from fomo26.paths import get_models_path
 from fomo26.utils.trainable import mark_trainable
 from fomo26.utils.lora import load_lora_state_dict
 
@@ -30,6 +32,8 @@ class BaseTrainer(pl.LightningModule, ABC):
         if ckpt_path is None:
             print(f"[BaseTrainer] No checkpoint specified.")
             return
+        else:
+            ckpt_path = Path(get_models_path(), ckpt_path)
 
         state_dict = torch.load(ckpt_path, map_location="cpu")
         if isinstance(state_dict, dict) and "state_dict" in state_dict:

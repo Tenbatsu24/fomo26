@@ -19,7 +19,7 @@ class ViTv2Adaption3D(ViTv2):
         volume_size: tuple[int, int, int],
         volume_patch_size: tuple[int, int, int],
         med_in_channels: int,
-        task: Literal["reg", "cls", "seg"],
+        task: Literal["regression", "classification", "segmentation", "none"],
         classes: int,
         *args,
         **kwargs,
@@ -42,11 +42,11 @@ class ViTv2Adaption3D(ViTv2):
             )
         )
 
-        if task in ["reg", "cls"]:
+        if task in ["regression", "classification", "none"]:
             self.attn_pool = AttentionPooling(self.embed_dim)
-            if task == "cls":
+            if task == "classification":
                 self.head = nn.Linear(self.embed_dim, classes)
-            elif task == "reg":
+            elif task == "regression":
                 self.head = nn.Linear(self.embed_dim, 1)
             else:
                 self.head = nn.Identity()
@@ -90,7 +90,6 @@ class ViTv2Adaption3D(ViTv2):
         sd = float(d0) / pd
 
         # Reshape from flattened patches to structural HWD grid format:
-        # (1, cube_root_N, cube_root_N, cube_root_N, dim) -> Permute to PyTorch standard Conv3D shape: (1, dim, H, W, D)
         patch_pos_embed = patch_pos_embed.reshape(1, ph, pw, pd, dim).permute(
             0, 4, 1, 2, 3
         )
@@ -152,9 +151,9 @@ class ViTv2Adaption3D(ViTv2):
         latents = out["latent"]
         patch_latents = out["patch_latent"]
 
-        if self.task in ["reg", "cls"]:
+        if self.task in ["regression", "classification", "none"]:
             return self.head(latents)
-        elif self.task == "seg":
+        elif self.task == "segmentation":
             psh, psw, psd = self.patch_size
             hp, wp, dp = h // psh, w // psw, d // psd
 
@@ -181,7 +180,7 @@ class ViTv2Adaption3D(ViTv2):
 
 
 def vitv2_a_3d_tiny(
-    volume_size=(224, 224, 28), volume_patch_size=(14, 14, 4), lora=False, **kwargs
+    volume_size=(224, 224, 32), volume_patch_size=(14, 14, 2), lora=False, **kwargs
 ):
     if "init_values" not in kwargs:
         kwargs["init_values"] = 0.1
@@ -203,7 +202,7 @@ def vitv2_a_3d_tiny(
 
 
 def vitv2_a_3d_small(
-    volume_size=(224, 224, 28), volume_patch_size=(14, 14, 4), lora=False, **kwargs
+    volume_size=(224, 224, 32), volume_patch_size=(14, 14, 2), lora=False, **kwargs
 ):
     if "init_values" not in kwargs:
         kwargs["init_values"] = 0.1
@@ -225,7 +224,7 @@ def vitv2_a_3d_small(
 
 
 def vitv2_a_3d_base(
-    volume_size=(224, 224, 28), volume_patch_size=(14, 14, 4), lora=False, **kwargs
+    volume_size=(224, 224, 32), volume_patch_size=(14, 14, 2), lora=False, **kwargs
 ):
     if "init_values" not in kwargs:
         kwargs["init_values"] = 0.1
@@ -247,7 +246,7 @@ def vitv2_a_3d_base(
 
 
 def vitv2_a_3d_large(
-    volume_size=(224, 224, 28), volume_patch_size=(14, 14, 4), lora=False, **kwargs
+    volume_size=(224, 224, 32), volume_patch_size=(14, 14, 2), lora=False, **kwargs
 ):
     if "init_values" not in kwargs:
         kwargs["init_values"] = 1e-5

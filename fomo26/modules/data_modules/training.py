@@ -111,7 +111,7 @@ class SegDataModule(pl.LightningDataModule):
         return DataLoader(
             self.val_dataset,
             num_workers=self.num_workers,
-            batch_size=self.batch_size,
+            batch_size=1,
             pin_memory=False,
             shuffle=False,
             persistent_workers=True if self.num_workers > 0 else False,
@@ -235,7 +235,7 @@ class ClsRegDataModule(pl.LightningDataModule):
         return DataLoader(
             self.val_dataset,
             num_workers=self.num_workers,
-            batch_size=self.batch_size,
+            batch_size=1,
             pin_memory=False,
             shuffle=False,
             persistent_workers=True if self.num_workers > 0 else False,

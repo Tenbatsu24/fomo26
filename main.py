@@ -7,7 +7,7 @@ import lightning as pl
 from torchvision import transforms
 from lightning.pytorch.loggers import CSVLogger
 from lightning.pytorch.callbacks import ModelCheckpoint, LearningRateMonitor
-from gardening_tools.modules.transforms.cropping_and_padding import Torch_CropPad, Torch_CenterCrop
+from gardening_tools.modules.transforms.cropping_and_padding import Torch_CropPad, Torch_Pad, Torch_CenterCrop
 
 from fomo26.utils.naming import get_run_name
 from fomo26.utils.config import load_yaml_config
@@ -69,11 +69,11 @@ DATASET_CLASSES = {
 def get_task_from_dataset_name(dataset_name):
     prefix = dataset_name[:3].upper()
     if prefix == "CLS":
-        return "cls"
+        return "classification"
     elif prefix == "REG":
-        return "reg"
+        return "regression"
     elif prefix == "SEG":
-        return "seg"
+        return "segmentation"
     else:
         raise ValueError(f"Cannot infer task from dataset name: {dataset_name}")
 
@@ -94,12 +94,18 @@ def load_config(config_path):
     return config
 
 
-def build_cpu_transforms(crop_size, training):
-    tforms = []
-    if training:
-        tforms.append(Torch_CropPad(patch_size=crop_size))
+def build_cpu_transforms(crop_size, training, task):
+    if task == "segmentation":
+        label_key = "label"
     else:
-        tforms.append(Torch_CenterCrop(target_size=crop_size))
+        label_key = None
+    if training:
+        tforms = [Torch_CropPad(label_key=label_key, patch_size=crop_size)]
+    else:
+        tforms = [
+            Torch_Pad(label_key=label_key, patch_size=crop_size),
+            Torch_CenterCrop(label_key=label_key, target_size=crop_size)
+        ]
     return transforms.Compose(tforms) if tforms else None
 
 
@@ -117,7 +123,7 @@ def build_model(config, task, n_modalities, n_classes):
         )
     else:
         return builder(
-            volume_size=config.get("crop_size", (378, 378, 32)),
+            volume_size=config.get("crop_size", (224, 224, 32)),
             volume_patch_size=config.get("volume_patch_size", (14, 14, 2)),
             med_in_channels=n_modalities,
             task=task,
@@ -127,9 +133,9 @@ def build_model(config, task, n_modalities, n_classes):
 
 
 def build_datamodule(config, task, dataset_class, data_root, fold, seed):
-    crop_size = config.get("crop_size", [378, 378, 32])
-    train_cpu_transforms = build_cpu_transforms(crop_size, training=True)
-    val_cpu_transforms = build_cpu_transforms(crop_size, training=False)
+    crop_size = config.get("crop_size", [224, 224, 32])
+    train_cpu_transforms = build_cpu_transforms(crop_size, training=True, task=task)
+    val_cpu_transforms = build_cpu_transforms(crop_size, training=False, task=task)
 
     if task == "segmentation":
         return SegDataModule(

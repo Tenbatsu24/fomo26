@@ -20,7 +20,7 @@ class ClassificationTrainer(BaseTrainer):
     def log_train_metrics(self, outputs, batch):
         preds = outputs.argmax(dim=1)
 
-        self.train_acc(preds, batch["target"].long())
+        self.train_acc(preds, batch["label"].long())
 
         self.log(
             "train/acc",
@@ -35,7 +35,7 @@ class ClassificationTrainer(BaseTrainer):
     def log_val_metrics(self, outputs, batch):
         preds = outputs.argmax(dim=1)
 
-        self.val_acc(preds, batch["target"].long())
+        self.val_acc(preds, batch["label"].long())
 
         self.log(
             "val/acc",
@@ -51,4 +51,4 @@ class ClassificationTrainer(BaseTrainer):
         return self.model(x)
 
     def compute_loss(self, outputs, batch):
-        return self.criterion(outputs, batch["target"].long())
+        return self.criterion(outputs, batch["label"].long())

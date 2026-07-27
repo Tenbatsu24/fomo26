@@ -17,7 +17,7 @@ class ViTv2Adaption(ViTv2):
     def __init__(
         self,
         med_in_channels: int,
-        task: Literal["reg", "cls", "seg"],
+        task: Literal["regression", "classification", "segmentation", "none"],
         classes,
         *args,
         volume_size=None,
@@ -32,16 +32,16 @@ class ViTv2Adaption(ViTv2):
 
         self.task = task
 
-        if task in ["reg", "cls", "seg"]:
+        if task in ["regression", "classification", "segmentation"]:
             self.input_adapter = InputChannelAdapter(in_channels=med_in_channels)
         else:
             self.input_adapter = nn.Conv3d(med_in_channels, 3, 1, bias=False)
 
-        if task in ["reg", "cls"]:
+        if task in ["regression", "classification", "none"]:
             self.attn_pool = AttentionPooling(self.embed_dim)
-            if task == "cls":
+            if task == "classification":
                 self.head = nn.Linear(self.embed_dim, classes)
-            elif task == "reg":
+            elif task == "regression":
                 self.head = nn.Linear(self.embed_dim, 1)
             else:
                 self.head = nn.Identity()
@@ -71,11 +71,11 @@ class ViTv2Adaption(ViTv2):
         latents = out["latent"]
         patch_latents = out["patch_latent"]
 
-        if self.task in ["reg", "cls"]:
+        if self.task in ["regression", "classification", "none"]:
             reshaped_out = rearrange(patch_latents, "(b d) n c -> b (d n) c", b=b)
             attnended = self.attn_pool(reshaped_out)
             return self.head(attnended)
-        elif self.task == "seg":
+        elif self.task == "segmentation":
             # make spatial
             hp, wp = h // self.patch_size, w // self.patch_size
 
@@ -187,7 +187,7 @@ if __name__ == "__main__":
     print("=" * 50)
 
     # 2. Define tasks to test
-    tasks = ["cls", "reg", "seg", "none"]
+    tasks = ["classification", "regression", "segmentation", "none"]
 
     for task in tasks:
         print(f"\n--- Testing Task: '{task.upper()}' ---")
