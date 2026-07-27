@@ -1,6 +1,6 @@
 import torch.nn as nn
 
-from torchmetrics.classification import MulticlassAccuracy
+from torchmetrics.classification import Accuracy
 
 from fomo26.trainer.base import BaseTrainer
 
@@ -10,8 +10,8 @@ class ClassificationTrainer(BaseTrainer):
         super().__init__(model, config, gpu_transforms, norm_transforms)
         self.criterion = nn.CrossEntropyLoss()
 
-        self.train_acc = MulticlassAccuracy(num_classes=config["num_classes"])
-        self.val_acc = MulticlassAccuracy(num_classes=config["num_classes"])
+        self.train_acc = Accuracy(task="multiclass", num_classes=config["num_classes"])
+        self.val_acc = Accuracy(task="multiclass", num_classes=config["num_classes"])
 
     def on_train_epoch_start(self) -> None:
         self.train_acc.reset()
@@ -19,9 +19,8 @@ class ClassificationTrainer(BaseTrainer):
 
     def log_train_metrics(self, outputs, batch):
         preds = outputs.argmax(dim=1)
-        target = batch["target"].long().squeeze(-1)
 
-        self.train_acc(preds, target)
+        self.train_acc(preds, batch["target"].long())
 
         self.log(
             "train/acc",
@@ -30,13 +29,13 @@ class ClassificationTrainer(BaseTrainer):
             on_epoch=False,
             prog_bar=True,
             sync_dist=True,
+            batch_size=batch["image"].shape[0],
         )
 
     def log_val_metrics(self, outputs, batch):
         preds = outputs.argmax(dim=1)
-        target = batch["target"].long().squeeze(-1)
 
-        self.val_acc(preds, target)
+        self.val_acc(preds, batch["target"].long())
 
         self.log(
             "val/acc",
@@ -45,11 +44,11 @@ class ClassificationTrainer(BaseTrainer):
             on_epoch=True,
             prog_bar=True,
             sync_dist=True,
+            batch_size=batch["image"].shape[0],
         )
 
     def forward(self, x):
         return self.model(x)
 
     def compute_loss(self, outputs, batch):
-        labels = batch["target"].long().squeeze(-1)
-        return self.criterion(outputs, labels)
+        return self.criterion(outputs, batch["target"].long())

@@ -79,6 +79,7 @@ class SegmentationTrainer(BaseTrainer):
             on_epoch=False,
             prog_bar=True,
             sync_dist=True,
+            batch_size=batch["image"].shape[0],
         )
 
     def log_val_metrics(self, outputs, batch):
@@ -98,6 +99,7 @@ class SegmentationTrainer(BaseTrainer):
             on_epoch=True,
             prog_bar=True,
             sync_dist=True,
+            batch_size=batch["image"].shape[0],
         )
 
         self.log(
@@ -107,11 +109,11 @@ class SegmentationTrainer(BaseTrainer):
             on_epoch=True,
             prog_bar=True,
             sync_dist=True,
+            batch_size=batch["image"].shape[0],
         )
 
     def forward(self, x):
         return self.model(x)
 
     def compute_loss(self, outputs, batch):
-        labels = batch["target"]
-        return self.criterion(outputs, labels)
+        return self.criterion(outputs, batch["target"])

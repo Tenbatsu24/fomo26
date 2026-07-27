@@ -1,5 +1,5 @@
-import torch
 import torch.nn as nn
+
 from torchmetrics.regression import MeanSquaredError
 
 from fomo26.trainer.base import BaseTrainer
@@ -29,6 +29,7 @@ class RegressionTrainer(BaseTrainer):
             on_epoch=False,
             prog_bar=True,
             sync_dist=True,
+            batch_size=batch["image"].shape[0],
         )
 
     def log_val_metrics(self, outputs, batch):
@@ -43,11 +44,11 @@ class RegressionTrainer(BaseTrainer):
             on_epoch=True,
             prog_bar=True,
             sync_dist=True,
+            batch_size=batch["image"].shape[0],
         )
 
     def forward(self, x):
         return self.model(x)
 
     def compute_loss(self, outputs, batch):
-        labels = batch["target"].float()
-        return self.criterion(outputs, labels)
+        return self.criterion(outputs, batch["target"].float())

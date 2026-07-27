@@ -143,6 +143,7 @@ class BaseTrainer(pl.LightningModule, ABC):
             on_epoch=False,
             prog_bar=True,
             sync_dist=True,
+            batch_size=batch["image"].shape[0],
         )
 
         self.log_train_metrics(outputs, batch)
@@ -161,6 +162,7 @@ class BaseTrainer(pl.LightningModule, ABC):
             on_epoch=True,
             prog_bar=True,
             sync_dist=True,
+            batch_size=batch["image"].shape[0],
         )
 
         self.log_val_metrics(outputs, batch)
