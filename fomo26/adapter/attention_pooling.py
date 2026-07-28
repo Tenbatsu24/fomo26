@@ -2,7 +2,7 @@ import torch
 import torch.nn as nn
 
 try:
-    import xformers.ops as xops
+    from xformers.ops import memory_efficient_attention
 
     XFORMERS_AVAILABLE = True
 except ImportError:
@@ -86,7 +86,7 @@ class AttentionPooling(nn.Module):
                 ~mask[:, None, None, :].to(torch.bool), float("-inf")
             )
 
-        out = xops.memory_efficient_attention(
+        out = memory_efficient_attention(
             q, k, v, attn_bias=attn_bias, p=self.dropout if self.training else 0.0
         )  # (B, 1, H, hd)
         return out.reshape(B, 1, self.dim)
