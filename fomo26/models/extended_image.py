@@ -9,7 +9,7 @@ import torch.nn.functional as F
 from einops import rearrange
 
 from fomo26.models.base import ViTv2
-from fomo26.adapter import InputChannelAdapter, AttentionPooling
+from fomo26.adapter import InputChannelAdapter, AttentionPooling, TaskTokens
 from fomo26.layers import Block, ScaleBlock, MemEffAttention, LoRAMemEffAttention
 
 LOGGER = logging.getLogger(__name__)
@@ -25,6 +25,9 @@ class ViTv2Adaption(ViTv2):
         *args,
         volume_size=None,
         volume_patch_size=None,
+        task_token: bool = False,
+        task_token_insertion: Literal["beginning", "middle"] = "beginning",
+        task_token_block: int = 6,
         **kwargs,
     ):
         super(ViTv2Adaption, self).__init__(*args, **kwargs)
@@ -59,45 +62,112 @@ class ViTv2Adaption(ViTv2):
             )
             self.head = nn.Linear(self.embed_dim // 16, classes)
 
+        # Task tokens
+        self.task_token_enabled = task_token
+        self.task_token_insertion = task_token_insertion
+        self.task_token_block = task_token_block
+        if task_token:
+            num_task_tokens = classes if task in ["classification", "segmentation"] else 1
+            self.task_tokens = TaskTokens(
+                num_tokens=num_task_tokens,
+                embed_dim=self.embed_dim,
+                insertion=task_token_insertion,
+            )
+            LOGGER.info(
+                "Task tokens enabled: %d tokens, insertion=%s, block=%d",
+                num_task_tokens, task_token_insertion, task_token_block,
+            )
+        else:
+            self.task_tokens = None
+
+    def prepare_tokens_with_masks(self, x, masks=None):
+        # x here is the 2D reshaped input: (B*d, C, H, W)
+        B_orig, c, h, w = x.shape  # B_orig = B * d (depth-folded)
+
+        x = self.patch_embed(x)
+        if masks is not None:
+            # masks are per-volume (B, H, W) — expand for depth-folded
+            B_vol = B_orig // max(1, h // self.patch_size * w // self.patch_size)
+            # Simpler: just use the mask as-is if shapes match
+            if masks.shape[0] == B_vol:
+                masks_exp = masks.unsqueeze(1).expand(-1, c, -1, -1).reshape(B_orig, -1, 1)
+                x = torch.where(
+                    masks_exp.bool(),
+                    self.mask_token.to(x.dtype).unsqueeze(0), x
+                )
+
+        x = torch.cat((self.cls_token.expand(x.shape[0], -1, -1), x), dim=1)
+        x = x + self.interpolate_pos_encoding(x, w, h)
+
+        if self.register_tokens is not None:
+            x = torch.cat(
+                (
+                    x[:, :1],
+                    self.register_tokens.expand(x.shape[0], -1, -1),
+                    x[:, 1:],
+                ),
+                dim=1,
+            )
+
+        # Inject task tokens after CLS (+ register) prefix
+        if self.task_tokens is not None and self.task_token_insertion == "beginning":
+            num_prefix = 1 + (self.num_register_tokens if self.register_tokens is not None else 0)
+            prefix = x[:, :num_prefix]
+            rest = x[:, num_prefix:]
+            x = torch.cat(
+                (prefix, self.task_tokens.tokens.expand(x.shape[0], -1, -1), rest),
+                dim=1,
+            )
+
+        return x
+
     def forward(self, x, masks=None, last_self_attention=False, **kwargs):
         b, c, h, w, d = x.shape
 
         adapted_x = self.input_adapter(x)
-
-        # go from 3d to folding depth into batch axes
         reshaped_x = rearrange(adapted_x, "b c ... d -> (b d) c ...")
 
-        out = super().forward(
-            reshaped_x,
-            masks=masks,
-            last_self_attention=last_self_attention,
-            **kwargs,
-        )
-        latents = out["latent"]
-        patch_latents = out["patch_latent"]
+        # Run through transformer blocks manually to support middle insertion
+        x = self.prepare_tokens_with_masks(reshaped_x, masks)
+
+        for i, blk in enumerate(self.blocks):
+            if (
+                self.task_tokens is not None
+                and self.task_token_insertion == "middle"
+                and i == self.task_token_block
+            ):
+                num_prefix = 1 + (self.num_register_tokens if self.register_tokens is not None else 0)
+                prefix = x[:, :num_prefix]
+                patches = x[:, num_prefix:]
+                x = torch.cat(
+                    (prefix, self.task_tokens.tokens.expand(x.shape[0], -1, -1), patches),
+                    dim=1,
+                )
+
+            if i < len(self.blocks) - 1:
+                x = blk(x)
+            else:
+                x = blk(x, return_attention=last_self_attention)
+
+        cls_tokens = self.norm(x[:, : self.num_register_tokens + 1])
+        patch_tokens = self.norm(x[:, self.num_register_tokens + 1:])
 
         if self.task in ["regression", "classification", "none"]:
-            reshaped_out = rearrange(patch_latents, "(b d) n c -> b (d n) c", b=b)
+            # patch_tokens: (B*d, N_patches, D) -> (B, d*N_patches, D)
+            reshaped_out = rearrange(patch_tokens, "(b d) n c -> b (d n) c", b=b)
             attended = self.attn_pool(reshaped_out)
             return self.head(attended)
         elif self.task == "segmentation":
-            # make spatial
             hp, wp = h // self.patch_size, w // self.patch_size
-
-            spatial = rearrange(patch_latents, "b (hp wp) c -> b c hp wp", hp=hp, wp=wp)
-
+            spatial = rearrange(patch_tokens, "b (hp wp) c -> b c hp wp", hp=hp, wp=wp)
             upscaled = self.upscale(spatial)
-
-            # final classifier
             rearranged = rearrange(upscaled, "b c ... -> b ... c")
             logits = rearrange(self.head(rearranged), "(b d) ... c -> b c ... d", b=b)
             return F.interpolate(
                 logits, size=(h, w, d), mode="trilinear", align_corners=False
             )
         else:
-            # reshaped latents
-            pooled = rearrange(latents, "(b d) c -> b d c", b=b).mean(dim=-2)
-
+            pooled = rearrange(cls_tokens, "(b d) c -> b d c", b=b).mean(dim=-2)
             return pooled
 
 
@@ -171,5 +241,3 @@ def vitv2_a_2d_large(lora=False, **kwargs):
         **kwargs,
     )
     return model
-
-
