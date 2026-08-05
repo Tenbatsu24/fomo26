@@ -66,7 +66,7 @@ class AttentionPooling(nn.Module):
 
         out = self.out_proj(out)
         out = self.proj_drop(out)
-        return out.squeeze(1)  # (B, D)
+        return out[:, 0]  # (B, D)
 
     def _attn_xformers(self, q, k, v, mask):
         B = q.shape[0]

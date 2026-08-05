@@ -1,6 +1,3 @@
-from .training import ClsRegDataModule, SegDataModule
+from .training import MedicalDataModule
 
-__all__ = [
-    "ClsRegDataModule",
-    "SegDataModule",
-]
+__all__ = ["MedicalDataModule"]

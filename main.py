@@ -23,7 +23,7 @@ from fomo26.dataset import (
     Task4TrigeminalNeuralgiaSegmentation,
     Task5PolymicrogyriaClassification,
 )
-from fomo26.modules.data_modules.training import SegDataModule, ClsRegDataModule
+from fomo26.modules.data_modules.training import MedicalDataModule
 from fomo26.models import (
     vitv2_a_2d_tiny,
     vitv2_a_2d_small,
@@ -137,28 +137,17 @@ def build_datamodule(config, task, dataset_class, data_root, fold, seed):
     train_cpu_transforms = build_cpu_transforms(crop_size, training=True, task=task)
     val_cpu_transforms = build_cpu_transforms(crop_size, training=False, task=task)
 
-    if task == "segmentation":
-        return SegDataModule(
-            batch_size=config.get("batch_size", 2),
-            num_workers=config.get("num_workers", 2),
-            dataset_class=dataset_class,
-            root=data_root,
-            fold=fold,
-            seed=seed,
-            train_transforms=train_cpu_transforms,
-            val_transforms=val_cpu_transforms,
-        )
-    else:
-        return ClsRegDataModule(
-            batch_size=config.get("batch_size", 8),
-            num_workers=config.get("num_workers", 2),
-            dataset_class=dataset_class,
-            root=data_root,
-            fold=fold,
-            seed=seed,
-            train_transforms=train_cpu_transforms,
-            val_transforms=val_cpu_transforms,
-        )
+    return MedicalDataModule(
+        batch_size=config.get("batch_size", 4),
+        num_workers=config.get("num_workers", 2),
+        dataset_class=dataset_class,
+        root=data_root,
+        fold=fold,
+        seed=seed,
+        train_transforms=train_cpu_transforms,
+        val_transforms=val_cpu_transforms,
+        val_drop_last=(task == "segmentation"),
+    )
 
 
 def build_trainer_module(config, task, model):
@@ -217,7 +206,7 @@ def main():
         filename=f"{{epoch}}-{{val/{metric}:.2f}}",
         monitor=f"val/{metric}",
         save_top_k=1,
-        mode="max" if task in ["seg", "cls"] else "min",
+        mode="max" if task in ["classification", "segmentation"] else "min",
     )
     last_checkpoint_callback = ModelCheckpoint(
         dirpath=os.path.join(results_path, run_name, f"fold{args.fold}"),

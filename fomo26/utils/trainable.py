@@ -3,7 +3,7 @@ from torch.nn import Module
 
 def mark_trainable(
     model: Module,
-    trainable_keys=(
+    trainable_keys: tuple[str, ...] = (
         "lora_A",
         "lora_B",
         "attn_pool",
@@ -11,8 +11,8 @@ def mark_trainable(
         "input_adapter",
         "upscale",
     ),
-    additional_keys=None,
-) -> tuple:
+    additional_keys: list[str] | None = None,
+) -> tuple[list[str], list[str]]:
     """
     Freeze all parameters in `model` except those whose name contains any of
     `trainable_keys` as a substring. Useful for LoRA-style fine-tuning where

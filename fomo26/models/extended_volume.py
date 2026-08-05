@@ -1,3 +1,4 @@
+import logging
 from typing import Literal
 from functools import partial
 
@@ -10,6 +11,8 @@ from einops import rearrange
 from fomo26.models.base import ViTv2
 from fomo26.adapter import PatchEmbed3D, AttentionPooling
 from fomo26.layers import Block, ScaleBlock, MemEffAttention, LoRAMemEffAttention
+
+LOGGER = logging.getLogger(__name__)
 
 
 class ViTv2Adaption3D(ViTv2):
@@ -267,52 +270,3 @@ def vitv2_a_3d_large(
     return model
 
 
-if __name__ == "__main__":
-    from fomo26.utils.trainable import mark_trainable
-
-    # Quick configuration settings for testing
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    print(f"Running tests on device: {device}\n" + "=" * 50)
-
-    # 1. Define dummy input dimensions
-    # Typical 3D medical volume chunk (Batch, Channels, Depth/Slices, Height, Width)
-    B, C_in, D, H, W = 4, 1, 224, 224, 128
-    classes = 3
-    patch_size = 14
-
-    # Generate dummy input tensor
-    dummy_input = torch.randn(B, C_in, D, H, W).to(device)
-    print(f"Input Shape: {dummy_input.shape} (B={B}, C={C_in}, D={D}, H={H}, W={W})")
-    print("=" * 50)
-
-    # 2. Define tasks to test
-    tasks = ["cls", "reg", "seg", "none"]
-
-    for task in tasks:
-        print(f"\n--- Testing Task: '{task.upper()}' ---")
-        # Instantiate the model using the tiny configuration
-        model = vitv2_a_3d_tiny(
-            volume_size=(224, 224, 128),
-            volume_patch_size=(14, 14, 8),
-            med_in_channels=C_in,
-            task=task,
-            classes=classes,
-            lora=True,
-        ).to(device)
-        trainable_names, _ = mark_trainable(
-            model, additional_keys=model.additional_trainable()
-        )
-
-        # Calculate parameter count
-        total_params = sum(p.numel() for p in model.parameters())
-        trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
-        print(
-            f"Model Parameters: {total_params:,} (Trainable: {trainable_params:,} = {trainable_params/total_params:.2%})"
-        )
-
-        # Forward pass
-        model.eval()
-        with torch.no_grad():
-            output = model(dummy_input)
-
-        print(f"v Success! Output shape: {output.shape}")

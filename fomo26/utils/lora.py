@@ -84,7 +84,10 @@ def merge_all_lora(model: nn.Module) -> int:
 
 
 def load_lora_state_dict(
-    model: nn.Module, state_dict: dict, strict: bool = False, ignore_loading=None
+    model: nn.Module,
+    state_dict: dict,
+    strict: bool = False,
+    ignore_loading: list[str] | None = None,
 ) -> tuple:
     """
     Convenience wrapper: remaps a plain-Attention checkpoint's keys to the

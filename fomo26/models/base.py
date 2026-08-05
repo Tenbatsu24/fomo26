@@ -293,13 +293,6 @@ class ViTv2(nn.Module):
             "last_self_attention": attn,
         }
 
-    def forward_head(self, x):
-        # Projection with l2-norm bottleneck
-        x = self.projection_head(x)
-        if self.l2_norm:
-            x = nn.functional.normalize(x, dim=1, p=2)
-        return x
-
     def _get_intermediate_layers_not_chunked(self, x, n=1):
         x = self.prepare_tokens_with_masks(x)
         # If n is an int, take the n last blocks. If it's a list, take them

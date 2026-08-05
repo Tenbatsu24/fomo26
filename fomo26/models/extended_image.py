@@ -1,3 +1,4 @@
+import logging
 from typing import Literal
 from functools import partial
 
@@ -11,6 +12,8 @@ from fomo26.models.base import ViTv2
 from fomo26.adapter import InputChannelAdapter, AttentionPooling
 from fomo26.layers import Block, ScaleBlock, MemEffAttention, LoRAMemEffAttention
 
+LOGGER = logging.getLogger(__name__)
+
 
 class ViTv2Adaption(ViTv2):
 
@@ -18,7 +21,7 @@ class ViTv2Adaption(ViTv2):
         self,
         med_in_channels: int,
         task: Literal["regression", "classification", "segmentation", "none"],
-        classes,
+        classes: int,
         *args,
         volume_size=None,
         volume_patch_size=None,
@@ -26,8 +29,10 @@ class ViTv2Adaption(ViTv2):
     ):
         super(ViTv2Adaption, self).__init__(*args, **kwargs)
         if volume_size is not None or volume_patch_size is not None:
-            print(
-                f"Warning: {volume_size=} and {volume_patch_size=} are not used in this 2D adaptation. Ignored."
+            LOGGER.warning(
+                "volume_size=%s and volume_patch_size=%s are not used in this 2D adaptation. Ignored.",
+                volume_size,
+                volume_patch_size,
             )
 
         self.task = task
@@ -73,8 +78,8 @@ class ViTv2Adaption(ViTv2):
 
         if self.task in ["regression", "classification", "none"]:
             reshaped_out = rearrange(patch_latents, "(b d) n c -> b (d n) c", b=b)
-            attnended = self.attn_pool(reshaped_out)
-            return self.head(attnended)
+            attended = self.attn_pool(reshaped_out)
+            return self.head(attended)
         elif self.task == "segmentation":
             # make spatial
             hp, wp = h // self.patch_size, w // self.patch_size
@@ -168,50 +173,3 @@ def vitv2_a_2d_large(lora=False, **kwargs):
     return model
 
 
-if __name__ == "__main__":
-    from fomo26.utils.trainable import mark_trainable
-
-    # Quick configuration settings for testing
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    print(f"Running tests on device: {device}\n" + "=" * 50)
-
-    # 1. Define dummy input dimensions
-    # Typical 3D medical volume chunk (Batch, Channels, Depth/Slices, Height, Width)
-    B, C_in, D, H, W = 4, 1, 128, 224, 224
-    classes = 3
-    patch_size = 14
-
-    # Generate dummy input tensor
-    dummy_input = torch.randn(B, C_in, D, H, W).to(device)
-    print(f"Input Shape: {dummy_input.shape} (B={B}, C={C_in}, D={D}, H={H}, W={W})")
-    print("=" * 50)
-
-    # 2. Define tasks to test
-    tasks = ["classification", "regression", "segmentation", "none"]
-
-    for task in tasks:
-        print(f"\n--- Testing Task: '{task.upper()}' ---")
-        # Instantiate the model using the tiny configuration
-        model = vitv2_a_2d_tiny(
-            med_in_channels=C_in,
-            task=task,
-            classes=classes,
-            patch_size=patch_size,
-            num_register_tokens=4,
-            lora=False,
-        ).to(device)
-        trainable_names, _ = mark_trainable(model)
-
-        # Calculate parameter count
-        total_params = sum(p.numel() for p in model.parameters())
-        trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
-        print(
-            f"Model Parameters: {total_params:,} (Trainable: {trainable_params:,} = {trainable_params/total_params:.2%})"
-        )
-
-        # Forward pass
-        model.eval()
-        with torch.no_grad():
-            output = model(dummy_input)
-
-        print(f"v Success! Output shape: {output.shape}")

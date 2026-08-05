@@ -254,12 +254,6 @@ class LoRAMemEffAttention(LoRAAttention):
         return x
 
 
-def mark_only_lora_as_trainable(model: nn.Module) -> None:
-    """Freeze everything except LoRA A/B params (and non-LoRA layers you add later)."""
-    for name, param in model.named_parameters():
-        param.requires_grad = "lora_A" in name or "lora_B" in name
-
-
 if __name__ == "__main__":
     device = "cuda" if torch.cuda.is_available() else "cpu"
 

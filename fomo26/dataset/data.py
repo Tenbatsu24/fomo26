@@ -10,6 +10,7 @@ import numpy as np
 import nibabel as nib
 import matplotlib.pyplot as plt
 from pygments.styles import default
+from scipy.ndimage import zoom
 
 from torch.utils.data import Dataset
 from sklearn.model_selection import KFold, StratifiedKFold
@@ -86,6 +87,73 @@ def load_nifti(
             data = np.zeros_like(data)
 
     return data, affine, spacing
+
+
+def resample_to_spacing(
+    data: np.ndarray,
+    affine: np.ndarray,
+    target_spacing: Tuple[float, float, float],
+) -> Tuple[np.ndarray, np.ndarray]:
+    """Resample a 3D volume to a target voxel spacing via affine remapping.
+
+    Args:
+        data: 3D array (H, W, D).
+        affine: 4×4 NIfTI affine matrix.
+        target_spacing: (pixdim1, pixdim2, pixdim3) in mm.
+
+    Returns:
+        (resampled_data, new_affine)
+    """
+    current_spacing = tuple(float(x) for x in affine[:3, 3] if False) or tuple(
+        float(x) for x in nib.load.__class__.header.fget.__get__(None, type(nib.Nifti1Image())).get_zooms()[:3]
+    )  # fallback — we already have spacing from load_nifti
+
+    # Compute scale factors: old_spacing / new_spacing
+    scale = tuple(old / new for old, new in zip(current_spacing, target_spacing))
+
+    resampled = zoom(data, scale, order=1)
+
+    # Update affine: scale the pixel-size rows
+    new_affine = affine.copy()
+    for i in range(3):
+        new_affine[i, i] = affine[i, i] * (target_spacing[i] / current_spacing[i])
+
+    return resampled, new_affine
+
+
+def resample_nifti(
+    path: Path,
+    target_spacing: Tuple[float, float, float],
+) -> Tuple[np.ndarray, np.ndarray, Tuple[float, ...]]:
+    """Load a NIfTI and resample it to *target_spacing* before returning.
+
+    Intensity preprocessing is NOT applied — the caller decides when to clip/normalize.
+    """
+    img = nib.load(str(path))
+    img_canon = nib.as_closest_canonical(img)
+    data = np.asarray(img_canon.get_fdata(dtype=np.float32))
+    affine = img_canon.affine
+    spacing = tuple(float(x) for x in img_canon.header.get_zooms()[:3])
+
+    if spacing == target_spacing:
+        return data, affine, spacing
+
+    resampled, new_affine = _resample_volume(data, affine, target_spacing, spacing)
+    return resampled, new_affine, target_spacing
+
+
+def _resample_volume(
+    data: np.ndarray,
+    affine: np.ndarray,
+    target_spacing: Tuple[float, float, float],
+    current_spacing: Tuple[float, float, float],
+) -> Tuple[np.ndarray, np.ndarray]:
+    scale = tuple(old / new for old, new in zip(current_spacing, target_spacing))
+    resampled = zoom(data, scale, order=1)
+    new_affine = affine.copy()
+    for i in range(3):
+        new_affine[i, i] = affine[i, i] * (target_spacing[i] / current_spacing[i])
+    return resampled, new_affine
 
 
 def ensure_3d(array: np.ndarray, path: Path) -> np.ndarray:
@@ -168,6 +236,7 @@ class MedicalTaskDataset(Dataset):
         n_splits: int = 5,
         transform=None,
         return_paths: bool = False,
+        resample_spacing: Optional[Tuple[float, float, float]] = None,
     ):
         self.root = Path(root)
         self.split = split
@@ -179,6 +248,7 @@ class MedicalTaskDataset(Dataset):
         self.fold = fold
         self.seed = seed
         self.n_splits = n_splits
+        self.resample_spacing = resample_spacing
 
         if not self.task_dir.exists():
             raise FileNotFoundError(f"Task directory does not exist: {self.task_dir}")
@@ -466,10 +536,13 @@ class MedicalTaskDataset(Dataset):
 
         for image_path in sample["image_paths"]:
 
-            image, _, _ = load_nifti(
-                image_path,
-                preprocess=True,
-            )
+            if self.resample_spacing is not None:
+                image, _, _ = resample_nifti(image_path, self.resample_spacing)
+            else:
+                image, _, _ = load_nifti(
+                    image_path,
+                    preprocess=True,
+                )
 
             image = ensure_3d(image, image_path)
 
