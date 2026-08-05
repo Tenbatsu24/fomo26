@@ -1,3 +1,4 @@
+import logging
 import math
 
 from pathlib import Path
@@ -12,6 +13,9 @@ from torch.optim.lr_scheduler import LambdaLR
 from fomo26.paths import get_models_path
 from fomo26.utils.trainable import mark_trainable
 from fomo26.utils.lora import load_lora_state_dict
+from fomo26.inference import sliding_window_predict
+
+LOGGER = logging.getLogger(__name__)
 
 
 class BaseTrainer(pl.LightningModule, ABC):
@@ -169,6 +173,44 @@ class BaseTrainer(pl.LightningModule, ABC):
             batch_size=batch["image"].shape[0],
         )
 
+        self.log_val_metrics(outputs, batch)
+
+        return loss
+
+    def test_step(self, batch, batch_idx):
+        """Run test evaluation. Uses sliding-window inference for segmentation."""
+        batch = self.apply_gpu_transforms(batch, training=False)
+        volume = batch["image"]
+
+        if self.model.task == "segmentation":
+            # Sliding-window inference for large volumes
+            ps = getattr(self.model, "patch_size", 14)
+            patch_size = ps if isinstance(ps, tuple) else (ps, ps)
+
+            outputs = sliding_window_predict(
+                self.model,
+                volume,
+                patch_size=patch_size,
+                device=volume.device,
+                batch_size=self.config.get("test_batch_size", 1),
+                amp=self.config.get("test_amp", False),
+            )
+        else:
+            outputs = self.forward(volume)
+
+        loss = self.compute_loss(outputs, batch)
+
+        self.log(
+            "test/loss",
+            loss,
+            on_step=False,
+            on_epoch=True,
+            prog_bar=True,
+            sync_dist=True,
+            batch_size=volume.shape[0],
+        )
+
+        # Reuse validation metric logging
         self.log_val_metrics(outputs, batch)
 
         return loss

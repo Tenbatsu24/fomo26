@@ -300,4 +300,3 @@ def vitv2_a_3d_large(
         **kwargs,
     )
     return model
-
