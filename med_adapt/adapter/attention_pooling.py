@@ -124,4 +124,4 @@ if __name__ == "__main__":
     tokens = torch.randn(4, 196, 768)  # B=4, N=196 patches, D=768
     pooled = pool(tokens)  # (4, 768)
 
-    logger.info("Input shape: %s, Output shape: %s", tokens.shape, pooled.shape)
+    logger.info(f"Input shape: {tokens.shape}, Output shape: {pooled.shape}")

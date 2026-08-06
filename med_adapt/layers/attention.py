@@ -263,30 +263,22 @@ if __name__ == "__main__":
 
     _att = MemEffAttention(dim=32, num_heads=4).to(device)
     logger.info(
-        "Attention shape (return_attn=True): %s",
-        _att(torch.randn(4, 16, 32, device=device), return_attn=True).shape,
+        f"Attention shape (return_attn=True): {_att(torch.randn(4, 16, 32, device=device), return_attn=True).shape}"
     )
-    logger.info(
-        "Attention shape: %s", _att(torch.randn(4, 16, 32, device=device)).shape
-    )
+    logger.info(f"Attention shape: {_att(torch.randn(4, 16, 32, device=device)).shape}")
 
     # LoRA version: same output shapes, but only a small fraction of params trainable
     _lora_att = LoRAMemEffAttention(dim=32, num_heads=4, lora_r=4).to(device)
     logger.info(
-        "LoRA Attention shape (return_attn=True): %s",
-        _lora_att(torch.randn(4, 16, 32, device=device), return_attn=True).shape,
+        f"LoRA Attention shape (return_attn=True): {_lora_att(torch.randn(4, 16, 32, device=device), return_attn=True).shape}"
     )
     logger.info(
-        "LoRA Attention shape: %s",
-        _lora_att(torch.randn(4, 16, 32, device=device)).shape,
+        f"LoRA Attention shape: {_lora_att(torch.randn(4, 16, 32, device=device)).shape}"
     )
 
     mark_only_lora_as_trainable(_lora_att)
     total = sum(p.numel() for p in _lora_att.parameters())
     trainable = sum(p.numel() for p in _lora_att.parameters() if p.requires_grad)
     logger.info(
-        "LoRA trainable params: %d/%d (%.2f%%)",
-        trainable,
-        total,
-        100 * trainable / total,
+        f"LoRA trainable params: {trainable}/{total} ({100 * trainable / total:.2f}%)"
     )

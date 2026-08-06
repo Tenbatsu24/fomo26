@@ -146,12 +146,12 @@ if __name__ == "__main__":
     # simulate a "pretrained" plain-attention model + checkpoint
     plain_model = MemEffAttention(dim=32, num_heads=4).to(device)
     plain_ckpt = plain_model.state_dict()
-    logger.info("plain ckpt keys: %s", list(plain_ckpt.keys()))
+    logger.info(f"plain ckpt keys: {list(plain_ckpt.keys())}")
 
     # build the LoRA version and load the plain checkpoint into it
     lora_model = LoRAMemEffAttention(dim=32, num_heads=4, lora_r=4).to(device)
     lora_state_dict = lora_model.state_dict()
-    logger.info("lora ckpt keys: %s", list(lora_state_dict.keys()))
+    logger.info(f"lora ckpt keys: {list(lora_state_dict.keys())}")
 
     missing, unexpected = load_lora_state_dict(lora_model, plain_ckpt)
 
@@ -161,12 +161,12 @@ if __name__ == "__main__":
     out_plain = plain_model(x)
     out_lora = lora_model(x)
     logger.info(
-        "max abs diff (should be ~0): %.6f", (out_plain - out_lora).abs().max().item()
+        f"max abs diff (should be ~0): {(out_plain - out_lora).abs().max().item():.6f}"
     )
 
     # round trip back to plain naming
     n = merge_all_lora(lora_model)
-    logger.info("merged %d LoRALinear layers", n)
+    logger.info(f"merged {n} LoRALinear layers")
 
     plain_state = convert_state_dict(lora_model.state_dict(), to_lora=False)
     plain_model.load_state_dict(plain_state, strict=True)

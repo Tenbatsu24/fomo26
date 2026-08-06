@@ -34,9 +34,7 @@ class ViTv2Adaption(ViTv2):
         super(ViTv2Adaption, self).__init__(*args, **kwargs)
         if volume_size is not None or volume_patch_size is not None:
             logger.warning(
-                "volume_size=%s and volume_patch_size=%s are not used in this 2D adaptation. Ignored.",
-                volume_size,
-                volume_patch_size,
+                f"volume_size={volume_size} and volume_patch_size={volume_patch_size} are not used in this 2D adaptation. Ignored.",
             )
 
         self.task = task
@@ -77,10 +75,7 @@ class ViTv2Adaption(ViTv2):
                 insertion=task_token_insertion,
             )
             logger.info(
-                "Task tokens enabled: %d tokens, insertion=%s, block=%d",
-                num_task_tokens,
-                task_token_insertion,
-                task_token_block,
+                f"Task tokens enabled: {num_task_tokens} tokens, insertion={task_token_insertion}, block={task_token_block}",
             )
         else:
             self.task_tokens = None

@@ -123,4 +123,4 @@ if __name__ == "__main__":
     adapter = InputChannelAdapter(in_channels=1, out_channels=3)
     vol = torch.randn(2, 1, 128, 256, 256)  # (B, C_in, D, H, W)
     out = adapter(vol)  # (2, 3, 128, 256, 256)
-    logger.info("Input shape: %s, Output shape: %s", vol.shape, out.shape)
+    logger.info(f"Input shape: {vol.shape}, Output shape: {out.shape}")

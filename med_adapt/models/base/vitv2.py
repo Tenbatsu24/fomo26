@@ -506,7 +506,7 @@ if __name__ == "__main__":
     _model = vitv2_tiny(patch_size=16, num_register_tokens=4, lora=True).cuda()
     _out = _model(torch.randn(2, 3, 224, 224, device="cuda"), last_self_attention=True)
 
-    logger.info("Output shapes: %s", {k: v.shape for k, v in _out.items()})
+    logger.info(f"Output shapes: { {k: v.shape for k, v in _out.items()} }")
 
     _attn = torch.softmax(_out["last_self_attention"], dim=-1)
-    logger.info("Attention sum over last dim: %s", _attn.sum(-1))
+    logger.info(f"Attention sum over last dim: {_attn.sum(-1)}")

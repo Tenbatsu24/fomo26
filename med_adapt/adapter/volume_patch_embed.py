@@ -137,24 +137,23 @@ if __name__ == "__main__":
 
     # Calculate expected grid size: (128//16, 128//16, 32//4) = (8, 8, 8)
     # Expected number of patches: 8 * 8 * 8 = 512
-    logger.info("Input Volume Shape (H, W, D): %s", img_size)
-    logger.info("Patch Size (h, w, d): %s", patch_size)
+    logger.info(f"Input Volume Shape (H, W, D): {img_size}")
+    logger.info(f"Patch Size (h, w, d): {patch_size}")
     logger.info(
-        "Expected Patch Grid Size (H_grid, W_grid, D_grid): %s",
-        patch_embed.patches_resolution,
+        f"Expected Patch Grid Size (H_grid, W_grid, D_grid): {patch_embed.patches_resolution}",
     )
-    logger.info("Expected Number of Patches: %d", patch_embed.num_patches)
-    logger.info("Calculated GFLOPs: %.6f GFLOPs", patch_embed.flops() / 1e9)
+    logger.info(f"Expected Number of Patches: {patch_embed.num_patches}")
+    logger.info(f"Calculated GFLOPs: {patch_embed.flops() / 1e9:.6f} GFLOPs")
     logger.info("-" * 50)
 
     # 3. Create a mock tensor in the HWD format: (B, C, H, W, D)
     x = torch.randn(batch_size, in_chans, *img_size)
-    logger.info("Mock Input Tensor Shape: %s", x.shape)
+    logger.info(f"Mock Input Tensor Shape: {x.shape}")
 
     # 4. Test Flattened Output: (B, N, E)
     out_flat = patch_embed(x)
     logger.info("--- 2. Testing Flattened Output ---")
-    logger.info("Output Shape: %s", out_flat.shape)
+    logger.info(f"Output Shape: {out_flat.shape}")
     expected_flat_shape = (batch_size, patch_embed.num_patches, embed_dim)
     assert (
         out_flat.shape == expected_flat_shape
@@ -171,7 +170,7 @@ if __name__ == "__main__":
     )
     out_unflat = patch_embed_unflat(x)
     logger.info("--- 3. Testing Unflattened Output (HWD Layout) ---")
-    logger.info("Output Shape: %s", out_unflat.shape)
+    logger.info(f"Output Shape: {out_unflat.shape}")
 
     hg, wg, dg = patch_embed_unflat.patches_resolution
     expected_unflat_shape = (batch_size, hg, wg, dg, embed_dim)

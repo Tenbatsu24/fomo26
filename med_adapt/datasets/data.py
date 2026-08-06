@@ -14,8 +14,8 @@ from scipy.ndimage import zoom
 from torch.utils.data import Dataset
 from sklearn.model_selection import KFold, StratifiedKFold
 
-from med_adapt.registry import register_dataset
 from med_adapt.utils.config import get_logger
+from med_adapt.registry import register_dataset
 
 logger = get_logger(__name__)
 
@@ -262,17 +262,13 @@ class MedicalTaskDataset(Dataset):
         self.samples = self._build_samples()
 
         logger.info(
-            "%s | total samples: %d",
-            self.TASK_NAME,
-            len(self.samples),
+            f"{self.TASK_NAME} | total samples: {len(self.samples)}",
         )
 
         self.samples = self._apply_split(self.samples)
 
         logger.info(
-            "%s | selected samples: %d",
-            self.TASK_NAME,
-            len(self.samples),
+            f"{self.TASK_NAME} | selected samples: {len(self.samples)}",
         )
 
         self.statistics_path = self.task_dir / "dataset_statistics.json"
@@ -334,9 +330,7 @@ class MedicalTaskDataset(Dataset):
 
         if len(sessions) > 1:
             logger.warning(
-                "Multiple sessions found in %s. Using %s.",
-                subject_dir,
-                sessions[0],
+                f"Multiple sessions found in {subject_dir}. Using {sessions[0]}.",
             )
 
         return sessions[0]
@@ -470,8 +464,7 @@ class MedicalTaskDataset(Dataset):
 
         if self.fold is None or self.seed is None:
             logger.info(
-                "%s | no fold split requested; using all samples",
-                self.TASK_NAME,
+                f"{self.TASK_NAME} | no fold split requested; using all samples",
             )
             return samples
 
@@ -514,11 +507,7 @@ class MedicalTaskDataset(Dataset):
                     selected_indices = test_indices
 
                 logger.info(
-                    "%s | fold=%d | seed=%d | selected=%d",
-                    self.TASK_NAME,
-                    self.fold,
-                    self.seed,
-                    len(selected_indices),
+                    f"{self.TASK_NAME} | fold={self.fold} | seed={self.seed} | selected={len(selected_indices)}",
                 )
 
                 return [samples[int(index)] for index in selected_indices]
@@ -615,17 +604,14 @@ class MedicalTaskDataset(Dataset):
         if self.statistics_path.exists() and self.cases_path.exists():
 
             logger.info(
-                "%s | loading cached statistics from %s",
-                self.TASK_NAME,
-                self.statistics_path,
+                f"{self.TASK_NAME} | loading cached statistics from {self.statistics_path}",
             )
 
             with open(self.statistics_path, "r") as f:
                 return json.load(f)
 
         logger.info(
-            "%s | computing dataset statistics",
-            self.TASK_NAME,
+            f"{self.TASK_NAME} | computing dataset statistics",
         )
 
         statistics, per_case_rows = self._compute_statistics()
@@ -766,9 +752,7 @@ class MedicalTaskDataset(Dataset):
     def _write_cases_csv(self, rows: List[Dict[str, Any]]) -> None:
         """Write per-case metadata to dataset_cases.csv."""
         logger.info(
-            "%s | writing per-case metadata to %s",
-            self.TASK_NAME,
-            self.cases_path,
+            f"{self.TASK_NAME} | writing per-case metadata to {self.cases_path}",
         )
 
         fieldnames = [
@@ -792,32 +776,28 @@ class MedicalTaskDataset(Dataset):
     def _log_statistics(self) -> None:
 
         logger.info("=" * 80)
-        logger.info("%s", self.TASK_NAME)
-        logger.info("Task type: %s", self.TASK_TYPE)
-        logger.info("Samples: %d", self.statistics["num_samples"])
-        logger.info("Modalities: %s", self.MODALITIES)
+        logger.info(f"{self.TASK_NAME}")
+        logger.info(f"Task type: {self.TASK_TYPE}")
+        logger.info(f"Samples: {self.statistics['num_samples']}")
+        logger.info(f"Modalities: {self.MODALITIES}")
 
         if self.NUM_CLASSES is not None:
-            logger.info("Number of classes: %d", self.NUM_CLASSES)
+            logger.info(f"Number of classes: {self.NUM_CLASSES}")
 
         logger.info(
-            "Mean per channel: %s",
-            self.statistics["mean_per_channel"],
+            f"Mean per channel: {self.statistics['mean_per_channel']}",
         )
 
         logger.info(
-            "Std per channel: %s",
-            self.statistics["std_per_channel"],
+            f"Std per channel: {self.statistics['std_per_channel']}",
         )
 
         logger.info(
-            "Mean resolution: %s",
-            self.statistics["resolution"]["mean"],
+            f"Mean resolution: {self.statistics['resolution']['mean']}",
         )
 
         logger.info(
-            "Mean spacing: %s",
-            self.statistics["spacing"]["mean"],
+            f"Mean spacing: {self.statistics['spacing']['mean']}",
         )
 
         logger.info("=" * 80)
@@ -832,9 +812,7 @@ class MedicalTaskDataset(Dataset):
     ) -> None:
 
         logger.info(
-            "%s | saving histogram plot to %s",
-            self.TASK_NAME,
-            self.histogram_path,
+            f"{self.TASK_NAME} | saving histogram plot to {self.histogram_path}",
         )
 
         # We recompute values for plotting.
@@ -957,9 +935,7 @@ class MedicalTaskDataset(Dataset):
             return
 
         logger.info(
-            "%s | creating example gallery at %s",
-            self.TASK_NAME,
-            self.gallery_path,
+            f"{self.TASK_NAME} | creating example gallery at {self.gallery_path}",
         )
 
         n_examples = min(
@@ -1243,7 +1219,7 @@ if __name__ == "__main__":
 
     logger.info("=" * 100)
     logger.info("DATASET INSPECTION")
-    logger.info("Root: %s", root)
+    logger.info(f"Root: {root}")
     logger.info("=" * 100)
 
     for dataset_cls in datasets:
@@ -1251,8 +1227,7 @@ if __name__ == "__main__":
         logger.info("")
         logger.info("=" * 100)
         logger.info(
-            "Inspecting %s",
-            dataset_cls.TASK_NAME,
+            f"Inspecting {dataset_cls.TASK_NAME}",
         )
         logger.info("=" * 100)
 
@@ -1266,30 +1241,25 @@ if __name__ == "__main__":
             )
 
             logger.info(
-                "Finished inspection of %s",
-                dataset_cls.TASK_NAME,
+                f"Finished inspection of {dataset_cls.TASK_NAME}",
             )
 
             logger.info(
-                "Statistics saved to: %s",
-                dataset.statistics_path,
+                f"Statistics saved to: {dataset.statistics_path}",
             )
 
             logger.info(
-                "Per-case metadata saved to: %s",
-                dataset.cases_path,
+                f"Per-case metadata saved to: {dataset.cases_path}",
             )
 
             logger.info(
-                "Histogram saved to: %s",
-                dataset.histogram_path,
+                f"Histogram saved to: {dataset.histogram_path}",
             )
 
         except Exception:
 
             logger.exception(
-                "Failed to inspect %s",
-                dataset_cls.TASK_NAME,
+                f"Failed to inspect {dataset_cls.TASK_NAME}",
             )
 
     logger.info("")

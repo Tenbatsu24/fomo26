@@ -80,10 +80,7 @@ class ViTv2Adaption3D(ViTv2):
                 insertion=task_token_insertion,
             )
             logger.info(
-                "Task tokens enabled: %d tokens, insertion=%s, block=%d",
-                num_task_tokens,
-                task_token_insertion,
-                task_token_block,
+                f"Task tokens enabled: {num_task_tokens} tokens, insertion={task_token_insertion}, block={task_token_block}",
             )
         else:
             self.task_tokens = None

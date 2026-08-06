@@ -159,4 +159,4 @@ if __name__ == "__main__":
         10, 16, 64, device=_device
     )  # Batch size 10, sequence length 16, feature dimension 64
     output = block(x)
-    logger.info("Output shape: %s (should be (10, 16, 64))", output.shape)
+    logger.info(f"Output shape: {output.shape} (should be (10, 16, 64))")
