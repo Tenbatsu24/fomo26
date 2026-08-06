@@ -1,7 +1,12 @@
 import torch
 import torch.nn as nn
 
-from fomo26.adapter import InputChannelAdapter, AttentionPooling, PatchEmbed3D, TaskTokens
+from med_adapt.adapter import (
+    InputChannelAdapter,
+    AttentionPooling,
+    PatchEmbed3D,
+    TaskTokens,
+)
 
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -51,7 +56,9 @@ class TestAttentionPooling:
 
 class TestPatchEmbed3D:
     def test_flattened_output(self):
-        embed = PatchEmbed3D(img_size=(32, 64, 64), patch_size=(4, 8, 8), in_chans=1, embed_dim=64).to(DEVICE)
+        embed = PatchEmbed3D(
+            img_size=(32, 64, 64), patch_size=(4, 8, 8), in_chans=1, embed_dim=64
+        ).to(DEVICE)
         x = torch.randn(2, 1, 32, 64, 64, device=DEVICE)
         out = embed(x)
         assert out.shape == (2, 8 * 8 * 8, 64)
@@ -71,7 +78,9 @@ class TestPatchEmbed3D:
 
 class TestTaskTokens:
     def test_forward_beginning(self):
-        tokens = TaskTokens(num_tokens=2, embed_dim=64, insertion="beginning").to(DEVICE)
+        tokens = TaskTokens(num_tokens=2, embed_dim=64, insertion="beginning").to(
+            DEVICE
+        )
         x = torch.randn(4, 10, 64, device=DEVICE)
         out = tokens(x)
         # Should prepend tokens after CLS position: (4, 1+2+9, 64) = (4, 12, 64)
