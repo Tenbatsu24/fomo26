@@ -1,0 +1,57 @@
+{
+  "model": {
+    "variant": "2d",
+    "size": "small",
+    "lora": true,
+    "task_tokens": false,
+    "task_token_insertion": "middle",
+    "task_token_block": 6
+  },
+  "pretrained": {
+    "checkpoint": "small/neco/encoder_teacher.ckpt"
+  },
+  "data": {
+    "dataset_name": "CLS002_FOMO26_Infarct",
+    "crop_size": [224, 224, 32],
+    "volume_patch_size": [14, 14, 2],
+    "batch_size": 2,
+    "num_workers": 1,
+    "resample_spacing": null
+  },
+  "optimizer": {
+    "type": "SGD",
+    "params": {
+      "lr": 1e-5,
+      "momentum": 0.9,
+      "weight_decay": 0.05,
+      "nesterov": true
+    }
+  },
+  "trainer": {
+    "accelerator": "auto",
+    "accumulate_grad_batches": 1,
+    "benchmark": false,
+    "deterministic": false,
+    "devices": "auto",
+    "gradient_clip_algorithm": null,
+    "gradient_clip_val": 3.0,
+    "limit_val_batches": 1.0,
+    "max_epochs": null,
+    "max_steps": 250,
+    "num_nodes": 1,
+    "num_sanity_val_steps": 0,
+    "precision": "32-true",
+    "strategy": "auto",
+    "sync_batchnorm": false,
+    "check_val_every_n_epoch": 1,
+    "val_check_interval": null
+  },
+  "scheduler": [],
+  "loss": null,
+  "metrics": null,
+  "test": {
+    "batch_size": 1,
+    "amp": false
+  },
+  "seed": 42
+}

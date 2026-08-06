@@ -1,0 +1,11 @@
+from .template import TemplateTrainer
+from .classification import ClassificationTrainer
+from .regression import RegressionTrainer
+from .segmentation import SegmentationTrainer
+
+__all__ = [
+    "TemplateTrainer",
+    "ClassificationTrainer",
+    "RegressionTrainer",
+    "SegmentationTrainer",
+]

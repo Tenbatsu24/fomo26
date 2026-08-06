@@ -2,7 +2,7 @@
 name = "fomo26"
 version = "0.1.0"
 description = "Medical imaging fine-tuning pipeline for 3D volumes using 2D natural-vision ViTs"
-requires-python = ">=3.10"
+requires-python = "~=3.12"
 dependencies = [
     "einops==0.8.2",
     "gardening_tools==0.3.5",
@@ -28,7 +28,7 @@ python_files = ["test_*.py"]
 
 [tool.ruff]
 line-length = 100
-target-version = "py310"
+target-version = "py312"
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "N", "W", "UP"]
