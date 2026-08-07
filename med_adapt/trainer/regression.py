@@ -17,7 +17,7 @@ class RegressionTrainer(TemplateTrainer):
         config: ConfigDict,
         model,
         gpu_augmentations,
-        normalisation: Optional[torch.nn.Module],
+        normalisation: Optional[torch.nn.Module] = None,
     ):
         config["loss"] = {"type": "huber"}
         config["metrics"] = {"l2": {"type": "rmse"}}

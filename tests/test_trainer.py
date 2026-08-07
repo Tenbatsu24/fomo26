@@ -8,6 +8,7 @@ from ml_collections import ConfigDict
 
 from med_adapt.loss import get_loss, DiceCELoss
 from med_adapt.metric import get_metric
+from med_adapt.augs import default_disable_aug
 
 
 class TestLossMetricFactories:
@@ -76,6 +77,9 @@ class HeadModel(nn.Module):
     def task(self):
         return "classification"
 
+    def additional_trainable(self):
+        return []
+
 
 class TestBaseTrainerInit:
     """Test that BaseTrainer can be instantiated with a simple model."""
@@ -87,7 +91,9 @@ class TestBaseTrainerInit:
         DEVICE = torch.device("cuda")
         model = HeadModel(in_dim=16, out_dim=2).to(DEVICE)
         config = _make_config(num_classes=2)
-        trainer = ClassificationTrainer(config=config, model=model)
+        trainer = ClassificationTrainer(
+            config=config, model=model, gpu_augmentations=default_disable_aug()
+        )
         assert trainer.model is model
         assert trainer.criterion is not None
 
@@ -98,7 +104,12 @@ class TestBaseTrainerInit:
         DEVICE = torch.device("cuda")
         model = HeadModel(in_dim=16, out_dim=1).to(DEVICE)
         config = _make_config(num_classes=None)
-        trainer = RegressionTrainer(config=config, model=model)
+        trainer = RegressionTrainer(
+            config=config,
+            model=model,
+            gpu_augmentations=default_disable_aug(),
+            normalisation=None,
+        )
         assert trainer.model is model
 
     @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA required")
@@ -118,10 +129,15 @@ class TestBaseTrainerInit:
             def task(self):
                 return "segmentation"
 
+            def additional_trainable(self):
+                return []
+
         DEVICE = torch.device("cuda")
         model = SegModel().to(DEVICE)
         config = _make_config(num_classes=3)
-        trainer = SegmentationTrainer(config=config, model=model)
+        trainer = SegmentationTrainer(
+            config=config, model=model, gpu_augmentations=default_disable_aug()
+        )
         assert trainer.model is model
 
     @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA required")
@@ -131,7 +147,9 @@ class TestBaseTrainerInit:
         DEVICE = torch.device("cuda")
         model = HeadModel(in_dim=16, out_dim=2).to(DEVICE)
         config = _make_config(num_classes=2)
-        trainer = ClassificationTrainer(config=config, model=model)
+        trainer = ClassificationTrainer(
+            config=config, model=model, gpu_augmentations=default_disable_aug()
+        )
 
         batch = {
             "image": torch.randn(4, 16, device=DEVICE),
@@ -148,7 +166,12 @@ class TestBaseTrainerInit:
         DEVICE = torch.device("cuda")
         model = HeadModel(in_dim=16, out_dim=1).to(DEVICE)
         config = _make_config(num_classes=None)
-        trainer = RegressionTrainer(config=config, model=model)
+        trainer = RegressionTrainer(
+            config=config,
+            model=model,
+            gpu_augmentations=default_disable_aug(),
+            normalisation=None,
+        )
 
         batch = {
             "image": torch.randn(4, 16, device=DEVICE),
@@ -175,10 +198,15 @@ class TestBaseTrainerInit:
             def task(self):
                 return "segmentation"
 
+            def additional_trainable(self):
+                return []
+
         DEVICE = torch.device("cuda")
         model = SegModel().to(DEVICE)
         config = _make_config(num_classes=3)
-        trainer = SegmentationTrainer(config=config, model=model)
+        trainer = SegmentationTrainer(
+            config=config, model=model, gpu_augmentations=default_disable_aug()
+        )
 
         batch = {
             "image": torch.randn(2, 1, 8, 8, 8, device=DEVICE),

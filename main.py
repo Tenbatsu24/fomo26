@@ -26,7 +26,7 @@ from med_adapt.utils.naming import get_run_name
 from med_adapt.datasets import build_dataloaders
 from med_adapt.utils.config import get_config, get_logger
 from med_adapt.utils.paths import get_results_path, get_data_path
-from med_adapt.augs.default import default_enable_aug, default_norm
+from med_adapt.augs.default import default_enable_aug, default_norm, Torch_Resize
 from med_adapt.trainer import (
     ClassificationTrainer,
     RegressionTrainer,
@@ -54,17 +54,17 @@ def get_task_from_dataset_name(dataset_name: str) -> str:
     else:
         raise ValueError(f"Cannot infer task from dataset name: {dataset_name}")
 
-
-def build_cpu_transforms(crop_size, training, task):
-    """Build CPU-side crop/pad transforms."""
+def build_cpu_transforms(crop_size, training, task, resize_to=None):
+    """Build CPU-side crop/pad/resize transforms."""
     label_key = "label" if task == "segmentation" else None
+    tforms = []
+    if resize_to is not None:
+        tforms.append(Torch_Resize(label_key=label_key, target_size=resize_to))
     if training:
-        tforms = [Torch_CropPad(label_key=label_key, patch_size=crop_size)]
+        tforms.append(Torch_CropPad(label_key=label_key, patch_size=crop_size))
     else:
-        tforms = [
-            Torch_Pad(label_key=label_key, patch_size=crop_size),
-            Torch_CenterCrop(label_key=label_key, target_size=crop_size),
-        ]
+        tforms.append(Torch_Pad(label_key=label_key, patch_size=crop_size))
+        tforms.append(Torch_CenterCrop(label_key=label_key, target_size=crop_size))
     return transforms.Compose(tforms) if tforms else None
 
 
@@ -161,7 +161,9 @@ def run_test_mode(
 
     model = build_model(config, task, n_modalities, n_classes)
     crop_size = tuple(config.data.crop_size)
-    test_transforms = build_cpu_transforms(crop_size, training=False, task=task)
+    test_transforms = build_cpu_transforms(
+        crop_size, training=False, task=task, resize_to=config.data.resize_to
+    )
     train_dl, val_dl, test_dl = build_dataloaders(
         dataset_class=dataset_class,
         root=str(get_data_path()),
@@ -170,6 +172,8 @@ def run_test_mode(
         batch_size=1,
         num_workers=config.data.num_workers,
         test_transforms=test_transforms,
+        resample_spacing=config.data.resample_spacing,
+        resize_to=config.data.resize_to,
     )
 
     # Load checkpoint weights only
@@ -253,8 +257,12 @@ def main():
     seed = config.seed
     crop_size = tuple(config.data.crop_size)
 
-    train_cpu_transforms = build_cpu_transforms(crop_size, training=True, task=task)
-    val_cpu_transforms = build_cpu_transforms(crop_size, training=False, task=task)
+    train_cpu_transforms = build_cpu_transforms(
+        crop_size, training=True, task=task, resize_to=config.data.resize_to
+    )
+    val_cpu_transforms = build_cpu_transforms(
+        crop_size, training=False, task=task, resize_to=config.data.resize_to
+    )
 
     model = build_model(config, task, n_modalities, n_classes)
     train_dl, val_dl, _ = build_dataloaders(
@@ -267,6 +275,8 @@ def main():
         train_transforms=train_cpu_transforms,
         val_transforms=val_cpu_transforms,
         val_drop_last=(task == "segmentation"),
+        resample_spacing=config.data.resample_spacing,
+        resize_to=config.data.resize_to,
     )
 
     gpu_transforms = default_enable_aug(ndim=3)

@@ -151,6 +151,23 @@ def _resample_volume(
     return resampled, new_affine
 
 
+def resize_volume(
+    data: np.ndarray,
+    target_shape: Tuple[int, int, int],
+) -> np.ndarray:
+    """Resize a 3D volume to *target_shape* via linear interpolation.
+
+    Args:
+        data: 3D array (H, W, D).
+        target_shape: (H, W, D) target voxel dimensions.
+
+    Returns:
+        Resized array with shape *target_shape*.
+    """
+    scale = tuple(t / c for t, c in zip(target_shape, data.shape))
+    return zoom(data, scale, order=1)
+
+
 def ensure_3d(array: np.ndarray, path: Path) -> np.ndarray:
     """Ensure an image is 3D."""
     if array.ndim != 3:
@@ -234,6 +251,7 @@ class MedicalTaskDataset(Dataset):
         resample_spacing: Optional[
             Union[Tuple[float, float, float], Literal["median"]]
         ] = None,
+        resize_to: Optional[Tuple[int, int, int]] = None,
     ):
         self.root = Path(root)
         self.split = split
@@ -291,6 +309,8 @@ class MedicalTaskDataset(Dataset):
             self.resample_spacing = median_spacing
         else:
             self.resample_spacing = resample_spacing
+
+        self.resize_to = resize_to
 
     # -------------------------------------------------------------------------
     # Sample discovery
@@ -534,10 +554,13 @@ class MedicalTaskDataset(Dataset):
             else:
                 image, _, _ = load_nifti(
                     image_path,
-                    preprocess=True,
+                    preprocess=False,
                 )
 
             image = ensure_3d(image, image_path)
+
+            if self.resize_to is not None:
+                image = resize_volume(image, self.resize_to)
 
             images.append(image)
 
@@ -655,7 +678,7 @@ class MedicalTaskDataset(Dataset):
 
                 image, _, spacing = load_nifti(
                     image_path,
-                    preprocess=True,
+                    preprocess=False,
                 )
 
                 image = ensure_3d(image, image_path)
@@ -836,7 +859,7 @@ class MedicalTaskDataset(Dataset):
             for channel_index, image_path in enumerate(sample["image_paths"]):
                 image, _, spacing = load_nifti(
                     image_path,
-                    preprocess=True,
+                    preprocess=False,
                 )
 
                 image = ensure_3d(image, image_path)

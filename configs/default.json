@@ -1,6 +1,6 @@
 {
   "model": {
-    "variant": "2d",
+    "variant": "3d",
     "size": "small",
     "lora": true,
     "task_tokens": false,
@@ -14,9 +14,10 @@
     "dataset_name": "CLS002_FOMO26_Infarct",
     "crop_size": [224, 224, 32],
     "volume_patch_size": [14, 14, 2],
-    "batch_size": 4,
+    "batch_size": 2,
     "num_workers": 1,
-    "resample_spacing": "median"
+    "resample_spacing": null,
+    "resize_to": [256, 256, 48]
   },
   "optimizer": {
     "type": "AdamW",

@@ -20,6 +20,8 @@ def build_dataloaders(
     test_transforms=None,
     n_splits: int = 5,
     val_drop_last: bool = True,
+    resample_spacing=None,
+    resize_to=None,
 ) -> tuple[DataLoader, DataLoader, DataLoader]:
     """Build train, validation, and test DataLoaders.
 
@@ -36,6 +38,8 @@ def build_dataloaders(
         test_transforms: Optional transform pipeline for testing.
         n_splits: Total number of cross-validation folds.
         val_drop_last: Whether to drop the last incomplete validation batch.
+        resample_spacing: Optional target spacing for resampling (tuple or "median").
+        resize_to: Optional target volume shape (H, W, D) for resizing.
 
     Returns:
         ``(train_dl, val_dl, test_dl)``
@@ -51,6 +55,8 @@ def build_dataloaders(
         seed=seed,
         n_splits=n_splits,
         transform=train_transforms,
+        resample_spacing=resample_spacing,
+        resize_to=resize_to,
     )
     val_ds = dataset_class(
         root=root,
@@ -59,6 +65,8 @@ def build_dataloaders(
         seed=seed,
         n_splits=n_splits,
         transform=val_transforms,
+        resample_spacing=resample_spacing,
+        resize_to=resize_to,
     )
     test_ds = dataset_class(
         root=root,
@@ -67,6 +75,8 @@ def build_dataloaders(
         seed=seed,
         n_splits=n_splits,
         transform=test_transforms,
+        resample_spacing=resample_spacing,
+        resize_to=resize_to,
     )
 
     train_dl = DataLoader(
