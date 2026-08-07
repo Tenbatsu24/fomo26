@@ -220,13 +220,9 @@ if __name__ == "__main__":
                 f"Histogram saved to: {dataset.histogram_path}",
             )
 
-            logger.info(
-                f"Creating Gallery..."
-            )
+            logger.info(f"Creating Gallery...")
             dataset.create_gallery()
-            logger.info(
-                "Finished creating gallery."
-            )
+            logger.info("Finished creating gallery.")
 
         except Exception:
 

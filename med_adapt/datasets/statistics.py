@@ -301,14 +301,10 @@ def log_statistics(
 
     logger.info(f"Mean per channel: {_fmt(statistics['mean_per_channel'])}")
     logger.info(f"Std per channel: {_fmt(statistics['std_per_channel'])}")
-    logger.info(
-        f"Mean resolution: {[
+    logger.info(f"Mean resolution: {[
             _fmt(ch) for ch in statistics['resolution']['mean']
-        ]}"
-    )
-    logger.info(
-        f"Mean spacing: {[
+        ]}")
+    logger.info(f"Mean spacing: {[
             _fmt(ch) for ch in statistics['spacing']['mean']
-        ]}"
-    )
+        ]}")
     logger.info("=" * 80)

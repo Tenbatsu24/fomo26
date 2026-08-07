@@ -14,7 +14,6 @@ import numpy as np
 import nibabel as nib
 from scipy.ndimage import zoom
 
-
 # =============================================================================
 # Loading
 # =============================================================================
@@ -82,9 +81,7 @@ def resample_nifti(
     if spacing == target_spacing:
         return data, affine, spacing
 
-    resampled, new_affine = resample_volume(
-        data, affine, target_spacing, spacing
-    )
+    resampled, new_affine = resample_volume(data, affine, target_spacing, spacing)
     return resampled, new_affine, target_spacing
 
 
@@ -151,9 +148,7 @@ def resize_volume(
 def ensure_3d(array: np.ndarray, path: Path) -> np.ndarray:
     """Ensure an image is 3D."""
     if array.ndim != 3:
-        raise ValueError(
-            f"Expected a 3D volume at {path}, got shape {array.shape}"
-        )
+        raise ValueError(f"Expected a 3D volume at {path}, got shape {array.shape}")
     return array
 
 

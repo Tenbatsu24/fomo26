@@ -12,7 +12,6 @@ from med_adapt.utils.config import get_logger
 from med_adapt.inference import sliding_window_predict
 from med_adapt.trainer.template import TemplateTrainer
 
-
 logger = get_logger(__name__)
 
 

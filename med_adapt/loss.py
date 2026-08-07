@@ -75,10 +75,14 @@ class MemoryEfficientSoftDiceLoss(nn.Module):
 
         probs = F.softmax(logits, dim=1)
 
-        target_oh = F.one_hot(
-            target,
-            num_classes=logits.shape[1],
-        ).movedim(-1, 1).float()
+        target_oh = (
+            F.one_hot(
+                target,
+                num_classes=logits.shape[1],
+            )
+            .movedim(-1, 1)
+            .float()
+        )
 
         if self.batch_dice:
             dims = (0,) + tuple(range(2, probs.ndim))
@@ -100,11 +104,7 @@ class MemoryEfficientSoftDiceLoss(nn.Module):
             dim=dims,
         )
 
-        dice = (
-            2.0 * intersection + self.smooth
-        ) / (
-            pred_sum + gt_sum + self.smooth
-        )
+        dice = (2.0 * intersection + self.smooth) / (pred_sum + gt_sum + self.smooth)
 
         if not self.do_bg:
             if self.batch_dice:
@@ -151,7 +151,4 @@ class DiceCELoss(nn.Module):
         ce_loss = self.ce(logits, target_ce)
         dice_loss = self.dice(logits, target)
 
-        return (
-            self.ce_weight * ce_loss
-            + self.dice_weight * dice_loss
-        )
+        return self.ce_weight * ce_loss + self.dice_weight * dice_loss

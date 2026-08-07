@@ -26,7 +26,12 @@ from med_adapt.utils.naming import get_run_name
 from med_adapt.datasets import build_dataloaders
 from med_adapt.utils.config import get_config, get_logger
 from med_adapt.utils.paths import get_results_path, get_data_path
-from med_adapt.augs.default import default_enable_aug, default_disable_aug, default_norm, Torch_Resize
+from med_adapt.augs.default import (
+    default_enable_aug,
+    default_disable_aug,
+    default_norm,
+    Torch_Resize,
+)
 from med_adapt.trainer import (
     ClassificationTrainer,
     RegressionTrainer,
@@ -53,6 +58,7 @@ def get_task_from_dataset_name(dataset_name: str) -> str:
         return "segmentation"
     else:
         raise ValueError(f"Cannot infer task from dataset name: {dataset_name}")
+
 
 def build_cpu_transforms(crop_size, training, task, resize_to=None):
     """Build CPU-side crop/pad/resize transforms."""
@@ -134,7 +140,9 @@ def run_test_mode(
 ):
     """Run standalone test evaluation on a saved checkpoint."""
     metric = (
-        "acc" if task == "classification" else "dice" if task == "segmentation" else "l2"
+        "acc"
+        if task == "classification"
+        else "dice" if task == "segmentation" else "l2"
     )
 
     run_name = get_run_name(

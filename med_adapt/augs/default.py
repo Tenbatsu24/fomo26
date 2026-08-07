@@ -16,6 +16,7 @@ from gardening_tools.modules.transforms.noise import (
     Torch_MultiplicativeNoise,
 )
 
+
 class Torch_Resize(BaseTransform):
     """Resize the entire 3D volume to a fixed target shape on the CPU."""
 
@@ -36,7 +37,11 @@ class Torch_Resize(BaseTransform):
         image = data_dict[self.data_key]
         if self.target_size is not None:
             # target_size is (H, W, D); interpolate trilinear expects (D, H, W)
-            interp_size = (self.target_size[2], self.target_size[0], self.target_size[1])
+            interp_size = (
+                self.target_size[2],
+                self.target_size[0],
+                self.target_size[1],
+            )
             # image shape: (C, H, W, D) -> interpolate expects (N, C, D, H, W)
             resized = torch.nn.functional.interpolate(
                 image.permute(0, 3, 1, 2).unsqueeze(0),
@@ -49,15 +54,23 @@ class Torch_Resize(BaseTransform):
 
         if data_dict.get(self.label_key) is not None and self.target_size is not None:
             label = data_dict[self.label_key]
-            interp_size = (self.target_size[2], self.target_size[0], self.target_size[1])
+            interp_size = (
+                self.target_size[2],
+                self.target_size[0],
+                self.target_size[1],
+            )
             # label shape: (H, W, D) -> (N, C, D, H, W) for interpolate
             # Cast to float for interpolate, then back to original dtype.
             label_float = label.to(dtype=torch.float32)
-            resized_label = torch.nn.functional.interpolate(
-                label_float.unsqueeze(0).unsqueeze(0).permute(0, 1, 3, 2, 4),
-                size=interp_size,
-                mode="nearest",
-            ).squeeze(0).squeeze(0)
+            resized_label = (
+                torch.nn.functional.interpolate(
+                    label_float.unsqueeze(0).unsqueeze(0).permute(0, 1, 3, 2, 4),
+                    size=interp_size,
+                    mode="nearest",
+                )
+                .squeeze(0)
+                .squeeze(0)
+            )
             # resized_label: (target_D, target_H, target_W) -> (target_H, target_W, target_D)
             data_dict[self.label_key] = resized_label.permute(1, 2, 0).to(label.dtype)
 

@@ -91,15 +91,23 @@ class DiceIoUMetric(Metric):
         pred_labels = preds.argmax(dim=1)
         target = target[:, 0].long()
 
-        pred_oh = F.one_hot(
-            pred_labels,
-            num_classes=self.num_classes,
-        ).movedim(-1, 1).bool()
+        pred_oh = (
+            F.one_hot(
+                pred_labels,
+                num_classes=self.num_classes,
+            )
+            .movedim(-1, 1)
+            .bool()
+        )
 
-        target_oh = F.one_hot(
-            target,
-            num_classes=self.num_classes,
-        ).movedim(-1, 1).bool()
+        target_oh = (
+            F.one_hot(
+                target,
+                num_classes=self.num_classes,
+            )
+            .movedim(-1, 1)
+            .bool()
+        )
 
         spatial_dims = tuple(range(2, pred_oh.ndim))
 
@@ -138,13 +146,14 @@ class DiceIoUMetric(Metric):
 
         return torch.nanmean(dice_fg)
         # {
-            # average over samples
-            # "dice_per_class": torch.nanmean(dice_fg, dim=0),
-            # "iou_per_class": torch.nanmean(iou_fg, dim=0),
-            # average over samples and classes
-            # "mean_dice": torch.nanmean(dice_fg),
-            # "mean_iou": torch.nanmean(iou_fg),
+        # average over samples
+        # "dice_per_class": torch.nanmean(dice_fg, dim=0),
+        # "iou_per_class": torch.nanmean(iou_fg, dim=0),
+        # average over samples and classes
+        # "mean_dice": torch.nanmean(dice_fg),
+        # "mean_iou": torch.nanmean(iou_fg),
         # }
+
 
 def get_metric(name: str, **params):
     """Return an instantiated metric.
@@ -162,7 +171,7 @@ def get_metric(name: str, **params):
         "mse": lambda **p: MeanSquaredError(squared=True, **p),
         "rmse": lambda **p: MeanSquaredError(squared=False, **p),
         "l2": lambda **p: MeanSquaredError(squared=False, **p),
-        "mean_dice": lambda **p: DiceIoUMetric(**p)
+        "mean_dice": lambda **p: DiceIoUMetric(**p),
     }
     if name not in metrics:
         raise ValueError(f"Unknown metric {name!r}. Available: {list(metrics)}")

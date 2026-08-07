@@ -179,12 +179,17 @@ class MedicalTaskDataset(Dataset):
         if not base_dir.exists():
             raise FileNotFoundError(f"Missing preprocessed directory: {base_dir}")
 
-        label_file = self.MASK_FILENAME if self.TASK_TYPE == "segmentation" else self.LABEL_FILENAME
+        label_file = (
+            self.MASK_FILENAME
+            if self.TASK_TYPE == "segmentation"
+            else self.LABEL_FILENAME
+        )
 
         subjects = sorted(
             p
             for p in base_dir.iterdir()
-            if p.is_dir() and (self.task_dir / "labels" / p.name / "ses-01" / label_file).exists()
+            if p.is_dir()
+            and (self.task_dir / "labels" / p.name / "ses-01" / label_file).exists()
         )
 
         if not subjects:
@@ -400,9 +405,7 @@ class MedicalTaskDataset(Dataset):
         for image_path in sample["image_paths"]:
 
             if self.resample_spacing is not None:
-                image, _, _ = resample_nifti(
-                    image_path, self.resample_spacing
-                )
+                image, _, _ = resample_nifti(image_path, self.resample_spacing)
             else:
                 image, _, _ = load_nifti(
                     image_path,
