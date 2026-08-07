@@ -1,5 +1,3 @@
-import csv
-import json
 import random
 
 from pathlib import Path
@@ -7,15 +5,27 @@ from typing import Any, Dict, List, Optional, Tuple, Union, Literal
 
 import torch
 import numpy as np
-import nibabel as nib
-import matplotlib.pyplot as plt
 
-from scipy.ndimage import zoom
 from torch.utils.data import Dataset
 from sklearn.model_selection import KFold, StratifiedKFold
 
 from med_adapt.utils.config import get_logger
 from med_adapt.registry import register_dataset
+
+from .io import (
+    ensure_3d,
+    load_nifti,
+    normalize_subject_name,
+    read_labels,
+    resample_nifti,
+    resample_volume,
+    resize_volume,
+)
+from .statistics import (
+    load_or_compute_statistics,
+    log_statistics,
+)
+from .visualisation import create_gallery
 
 logger = get_logger(__name__)
 
@@ -30,179 +40,6 @@ def set_seed(seed: int) -> None:
     random.seed(seed)
     np.random.seed(seed)
     torch.manual_seed(seed)
-
-
-def load_nifti(
-    path: Path,
-    preprocess: bool = False,
-) -> Tuple[np.ndarray, np.ndarray, Tuple[float, ...]]:
-
-    image = nib.load(str(path))
-
-    # Canonical RAS+ orientation.
-    image = nib.as_closest_canonical(image)
-
-    data = np.asarray(image.get_fdata(dtype=np.float32))
-
-    affine = image.affine
-
-    spacing = tuple(float(x) for x in image.header.get_zooms()[:3])
-
-    # ------------------------------------------------------------------
-    # Image preprocessing only
-    # ------------------------------------------------------------------
-
-    if preprocess:
-
-        # Compute robust intensity limits.
-        lower = np.percentile(data, 0.5)
-        upper = np.percentile(data, 99.5)
-
-        # Clip intensities to the 0.5th-99.5th percentile range.
-        data = np.clip(
-            data,
-            lower,
-            upper,
-        )
-
-        # Z-score normalize after clipping.
-        mean = data.mean()
-        std = data.std()
-
-        if std > 0:
-
-            data = (data - mean) / std
-
-        else:
-
-            # Constant image.
-            data = np.zeros_like(data)
-
-    return data, affine, spacing
-
-
-def resample_to_spacing(
-    data: np.ndarray,
-    affine: np.ndarray,
-    target_spacing: Tuple[float, float, float],
-) -> Tuple[np.ndarray, np.ndarray]:
-    """Resample a 3D volume to a target voxel spacing via affine remapping.
-
-    Args:
-        data: 3D array (H, W, D).
-        affine: 4×4 NIfTI affine matrix.
-        target_spacing: (pixdim1, pixdim2, pixdim3) in mm.
-
-    Returns:
-        (resampled_data, new_affine)
-    """
-    current_spacing = tuple(float(x) for x in affine[:3, 3] if False) or tuple(
-        float(x)
-        for x in nib.load.__class__.header.fget.__get__(
-            None, type(nib.Nifti1Image())
-        ).get_zooms()[:3]
-    )  # fallback — we already have spacing from load_nifti
-
-    # Compute scale factors: old_spacing / new_spacing
-    scale = tuple(old / new for old, new in zip(current_spacing, target_spacing))
-
-    resampled = zoom(data, scale, order=1)
-
-    # Update affine: scale the pixel-size rows
-    new_affine = affine.copy()
-    for i in range(3):
-        new_affine[i, i] = affine[i, i] * (target_spacing[i] / current_spacing[i])
-
-    return resampled, new_affine
-
-
-def resample_nifti(
-    path: Path,
-    target_spacing: Tuple[float, float, float],
-) -> Tuple[np.ndarray, np.ndarray, Tuple[float, ...]]:
-    """Load a NIfTI and resample it to *target_spacing* before returning.
-
-    Intensity preprocessing is NOT applied — the caller decides when to clip/normalize.
-    """
-    img = nib.load(str(path))
-    img_canon = nib.as_closest_canonical(img)
-    data = np.asarray(img_canon.get_fdata(dtype=np.float32))
-    affine = img_canon.affine
-    spacing = tuple(float(x) for x in img_canon.header.get_zooms()[:3])
-
-    if spacing == target_spacing:
-        return data, affine, spacing
-
-    resampled, new_affine = _resample_volume(data, affine, target_spacing, spacing)
-    return resampled, new_affine, target_spacing
-
-
-def _resample_volume(
-    data: np.ndarray,
-    affine: np.ndarray,
-    target_spacing: Tuple[float, float, float],
-    current_spacing: Tuple[float, float, float],
-) -> Tuple[np.ndarray, np.ndarray]:
-    scale = tuple(old / new for old, new in zip(current_spacing, target_spacing))
-    resampled = zoom(data, scale, order=1)
-    new_affine = affine.copy()
-    for i in range(3):
-        new_affine[i, i] = affine[i, i] * (target_spacing[i] / current_spacing[i])
-    return resampled, new_affine
-
-
-def resize_volume(
-    data: np.ndarray,
-    target_shape: Tuple[int, int, int],
-) -> np.ndarray:
-    """Resize a 3D volume to *target_shape* via linear interpolation.
-
-    Args:
-        data: 3D array (H, W, D).
-        target_shape: (H, W, D) target voxel dimensions.
-
-    Returns:
-        Resized array with shape *target_shape*.
-    """
-    scale = tuple(t / c for t, c in zip(target_shape, data.shape))
-    return zoom(data, scale, order=1)
-
-
-def ensure_3d(array: np.ndarray, path: Path) -> np.ndarray:
-    """Ensure an image is 3D."""
-    if array.ndim != 3:
-        raise ValueError(f"Expected a 3D volume at {path}, got shape {array.shape}")
-
-    return array
-
-
-def read_labels(path: Path) -> List[float]:
-    """
-    Read labels from a text file.
-
-    Supports:
-        one value per line
-        whitespace-separated values
-        comma-separated values
-    """
-    text = path.read_text().replace(",", " ")
-
-    values = []
-    for token in text.split():
-        values.append(float(token))
-
-    return values
-
-
-def normalize_subject_name(name: str) -> str:
-    """
-    Normalize subject naming for matching.
-
-    Handles:
-        sub-01
-        sub_01
-    """
-    return name.replace("_", "-")
 
 
 # =============================================================================
@@ -290,16 +127,24 @@ class MedicalTaskDataset(Dataset):
         )
 
         self.statistics_path = self.task_dir / "dataset_statistics.json"
-
         self.cases_path = self.task_dir / "dataset_cases.csv"
-
         self.histogram_path = self.task_dir / "dataset_histograms.png"
-
         self.gallery_path = self.task_dir / "dataset_gallery.png"
 
-        self.statistics = self._load_or_compute_statistics()
+        self.statistics = load_or_compute_statistics(
+            self.samples,
+            self.TASK_NAME,
+            self.statistics_path,
+            self.cases_path,
+        )
 
-        self._log_statistics()
+        log_statistics(
+            self.statistics,
+            self.TASK_NAME,
+            self.TASK_TYPE,
+            self.MODALITIES,
+            self.NUM_CLASSES,
+        )
 
         if resample_spacing == "median":
             spacing_array = np.asarray(self.statistics["spacing_per_modality"])
@@ -550,7 +395,9 @@ class MedicalTaskDataset(Dataset):
         for image_path in sample["image_paths"]:
 
             if self.resample_spacing is not None:
-                image, _, _ = resample_nifti(image_path, self.resample_spacing)
+                image, _, _ = resample_nifti(
+                    image_path, self.resample_spacing
+                )
             else:
                 image, _, _ = load_nifti(
                     image_path,
@@ -572,8 +419,25 @@ class MedicalTaskDataset(Dataset):
 
         if self.TASK_TYPE == "segmentation":
 
-            target, _, _ = load_nifti(target)
+            if self.resample_spacing is not None:
+                # Resample mask with nearest-neighbor to preserve label
+                # integrity (nnU-Net convention).
+                mask, affine, spacing = load_nifti(target)
+                mask, new_affine = resample_volume(
+                    mask,
+                    affine,
+                    self.resample_spacing,
+                    spacing,
+                    order=0,
+                )
+                target = mask
+            else:
+                target, _, _ = load_nifti(target)
+
             target = ensure_3d(target, sample["label"])
+
+            if self.resize_to is not None:
+                target = resize_volume(target, self.resize_to, order=0)
 
             target = torch.from_numpy(target.astype(np.int64))
 
@@ -609,346 +473,9 @@ class MedicalTaskDataset(Dataset):
                 sample_dict["mask_path"] = sample["label"]
 
         if self.transform is not None:
-            # print(f"transform: {self.transform}")
-            # print({k: v.shape if isinstance(v, torch.Tensor) else [] for k, v in sample_dict.items()})
             sample_dict = self.transform(sample_dict)
-            # print({k: v.shape if isinstance(v, torch.Tensor) else [] for k, v in sample_dict.items()})
-        # else:
-        #     print(f"No transform: {self.transform}")
 
         return sample_dict
-
-    # -------------------------------------------------------------------------
-    # Statistics
-    # -------------------------------------------------------------------------
-
-    def _load_or_compute_statistics(self) -> Dict[str, Any]:
-
-        if self.statistics_path.exists() and self.cases_path.exists():
-
-            logger.info(
-                f"{self.TASK_NAME} | loading cached statistics from {self.statistics_path}",
-            )
-
-            with open(self.statistics_path, "r") as f:
-                return json.load(f)
-
-        logger.info(
-            f"{self.TASK_NAME} | computing dataset statistics",
-        )
-
-        statistics, per_case_rows = self._compute_statistics()
-
-        with open(self.statistics_path, "w") as f:
-            json.dump(
-                statistics,
-                f,
-                indent=2,
-            )
-
-        self._write_cases_csv(per_case_rows)
-
-        self._save_histograms(statistics)
-
-        return statistics
-
-    def _compute_statistics(
-        self,
-    ) -> Tuple[Dict[str, Any], List[Dict[str, Any]]]:
-        """Compute dataset statistics in a single pass.
-
-        Returns:
-            (statistics, per_case_rows) where per_case_rows is a list of
-            dicts suitable for writing to dataset_cases.csv.
-        """
-        per_channel_mean = [[] for _ in range(self.NUM_MODALITIES)]
-        per_channel_std = [[] for _ in range(self.NUM_MODALITIES)]
-
-        resolutions = []
-        spacing_per_modality = []
-
-        per_case_rows = []
-
-        for sample in self.samples:
-
-            sample_shapes = []
-            sample_spacings = []
-
-            for channel_index, image_path in enumerate(sample["image_paths"]):
-
-                image, _, spacing = load_nifti(
-                    image_path,
-                    preprocess=False,
-                )
-
-                image = ensure_3d(image, image_path)
-
-                per_channel_mean[channel_index].append(float(np.mean(image)))
-
-                per_channel_std[channel_index].append(float(np.std(image)))
-
-                sample_shapes.append(list(image.shape))
-                sample_spacings.append(list(spacing))
-
-                per_case_rows.append(
-                    {
-                        "subject": sample["subject"],
-                        "modality": self.MODALITIES[channel_index],
-                        "shape_h": image.shape[0],
-                        "shape_w": image.shape[1],
-                        "shape_d": image.shape[2],
-                        "spacing_h": round(spacing[0], 4),
-                        "spacing_w": round(spacing[1], 4),
-                        "spacing_d": round(spacing[2], 4),
-                        "mean_intensity": round(float(np.mean(image)), 6),
-                        "std_intensity": round(float(np.std(image)), 6),
-                    }
-                )
-
-            resolutions.append(sample_shapes)
-            spacing_per_modality.append(sample_spacings)
-
-        # Statistics are per-sample because instance normalization is used.
-        mean_per_channel = [float(np.mean(values)) for values in per_channel_mean]
-
-        std_per_channel = [float(np.mean(values)) for values in per_channel_std]
-
-        resolution_array = np.asarray(resolutions)
-
-        spacing_array = np.asarray(spacing_per_modality)
-
-        statistics = {
-            "task": self.TASK_NAME,
-            "folder": self.FOLDER_NAME,
-            "task_type": self.TASK_TYPE,
-            "num_samples": len(self.samples),
-            "num_modalities": self.NUM_MODALITIES,
-            "modalities": list(self.MODALITIES),
-            "num_classes": self.NUM_CLASSES,
-            "mean_per_channel": mean_per_channel,
-            "std_per_channel": std_per_channel,
-            "resolution": {
-                "mean": np.mean(
-                    resolution_array,
-                    axis=0,
-                ).tolist(),
-                "std": np.std(
-                    resolution_array,
-                    axis=0,
-                ).tolist(),
-                "min": np.min(
-                    resolution_array,
-                    axis=0,
-                ).tolist(),
-                "max": np.max(
-                    resolution_array,
-                    axis=0,
-                ).tolist(),
-            },
-            "spacing": {
-                "mean": np.mean(
-                    spacing_array,
-                    axis=0,
-                ).tolist(),
-                "std": np.std(
-                    spacing_array,
-                    axis=0,
-                ).tolist(),
-                "min": np.min(
-                    spacing_array,
-                    axis=0,
-                ).tolist(),
-                "max": np.max(
-                    spacing_array,
-                    axis=0,
-                ).tolist(),
-                "median": np.median(
-                    spacing_array,
-                    axis=0,
-                ).tolist(),
-            },
-            "spacing_per_modality": spacing_array.tolist(),
-        }
-
-        return statistics, per_case_rows
-
-    def _write_cases_csv(self, rows: List[Dict[str, Any]]) -> None:
-        """Write per-case metadata to dataset_cases.csv."""
-        logger.info(
-            f"{self.TASK_NAME} | writing per-case metadata to {self.cases_path}",
-        )
-
-        fieldnames = [
-            "subject",
-            "modality",
-            "shape_h",
-            "shape_w",
-            "shape_d",
-            "spacing_h",
-            "spacing_w",
-            "spacing_d",
-            "mean_intensity",
-            "std_intensity",
-        ]
-
-        with open(self.cases_path, "w", newline="") as f:
-            writer = csv.DictWriter(f, fieldnames=fieldnames)
-            writer.writeheader()
-            writer.writerows(rows)
-
-    def _log_statistics(self) -> None:
-
-        logger.info("=" * 80)
-        logger.info(f"{self.TASK_NAME}")
-        logger.info(f"Task type: {self.TASK_TYPE}")
-        logger.info(f"Samples: {self.statistics['num_samples']}")
-        logger.info(f"Modalities: {self.MODALITIES}")
-
-        if self.NUM_CLASSES is not None:
-            logger.info(f"Number of classes: {self.NUM_CLASSES}")
-
-        def _fmt_channel_values(values: List[float]) -> str:
-            return "[" + " ".join([f"{v:.3f}" for v in values]) + "]"
-
-        logger.info(
-            f"Mean per channel: {_fmt_channel_values(self.statistics['mean_per_channel'])}",
-        )
-
-        logger.info(
-            f"Std per channel: {_fmt_channel_values(self.statistics['std_per_channel'])}",
-        )
-
-        logger.info(
-            f"Mean resolution: {[
-                _fmt_channel_values(channel_mean) for channel_mean in self.statistics['resolution']['mean']
-            ]}",
-        )
-
-        logger.info(
-            f"Mean spacing: {[
-                _fmt_channel_values(channel_mean) for channel_mean in self.statistics['spacing']['mean']
-            ]}",
-        )
-
-        logger.info("=" * 80)
-
-    # -------------------------------------------------------------------------
-    # Histograms
-    # -------------------------------------------------------------------------
-
-    def _save_histograms(
-        self,
-        statistics: Dict[str, Any],
-    ) -> None:
-
-        logger.info(
-            f"{self.TASK_NAME} | saving histogram plot to {self.histogram_path}",
-        )
-
-        # We recompute values for plotting.
-        channel_values = [[] for _ in range(self.NUM_MODALITIES)]
-
-        resolutions = []
-        spacings = []
-
-        for sample in self.samples:
-
-            sample_shapes = []
-            sample_spacings = []
-
-            for channel_index, image_path in enumerate(sample["image_paths"]):
-                image, _, spacing = load_nifti(
-                    image_path,
-                    preprocess=False,
-                )
-
-                image = ensure_3d(image, image_path)
-
-                # Subsample for memory efficiency.
-                flat = image.ravel()
-
-                if len(flat) > 100_000:
-                    flat = np.random.choice(
-                        flat,
-                        size=100_000,
-                        replace=False,
-                    )
-
-                channel_values[channel_index].extend(flat.tolist())
-
-                sample_shapes.append(image.shape)
-                sample_spacings.append(spacing)
-
-            resolutions.extend(np.asarray(sample_shapes).reshape(-1, 3))
-
-            spacings.extend(np.asarray(sample_spacings).reshape(-1, 3))
-
-        nrows = 2
-        ncols = max(
-            self.NUM_MODALITIES,
-            3,
-        )
-
-        fig, axes = plt.subplots(
-            nrows=nrows,
-            ncols=ncols,
-            figsize=(5 * ncols, 8),
-            constrained_layout=True,
-        )
-
-        axes = np.atleast_2d(axes)
-
-        for channel_index, modality in enumerate(self.MODALITIES):
-
-            axes[0, channel_index].hist(
-                channel_values[channel_index],
-                bins=100,
-            )
-
-            axes[0, channel_index].set_title(
-                f"{modality}\n"
-                f"mean={statistics['mean_per_channel'][channel_index]:.3f}, "
-                f"std={statistics['std_per_channel'][channel_index]:.3f}"
-            )
-
-            axes[0, channel_index].set_xlabel("Intensity")
-            axes[0, channel_index].set_ylabel("Frequency")
-
-        for axis_index, axis_name in enumerate(["X", "Y", "Z"]):
-
-            axes[1, axis_index].hist(
-                np.asarray(resolutions)[:, axis_index],
-                bins=30,
-            )
-
-            axes[1, axis_index].set_title(f"Resolution {axis_name}")
-
-            axes[1, axis_index].set_xlabel("Voxels")
-            axes[1, axis_index].set_ylabel("Frequency")
-
-        # If there are spare axes, hide them.
-        for row in range(nrows):
-            for col in range(ncols):
-
-                if row == 0 and col >= self.NUM_MODALITIES:
-                    axes[row, col].axis("off")
-
-                if row == 1 and col >= 3:
-                    axes[row, col].axis("off")
-
-        fig.suptitle(
-            f"{self.TASK_NAME} — Dataset Statistics",
-            fontsize=18,
-            fontweight="bold",
-        )
-
-        fig.savefig(
-            self.histogram_path,
-            dpi=200,
-            bbox_inches="tight",
-        )
-
-        plt.close(fig)
 
     # -------------------------------------------------------------------------
     # Gallery
@@ -961,146 +488,14 @@ class MedicalTaskDataset(Dataset):
         because loading and rendering every sample is computationally heavy.
         Call this method explicitly when you need the gallery.
         """
-        if len(self.samples) == 0:
-            return
-
-        logger.info(
-            f"{self.TASK_NAME} | creating example gallery at {self.gallery_path}",
-        )
-
-        n_examples = min(
-            self.GALLERY_SIZE,
-            len(self.samples),
-        )
-
-        indices = np.linspace(
-            0,
-            len(self.samples) - 1,
-            n_examples,
-            dtype=int,
-        )
-
-        ncols = self.NUM_MODALITIES
-        nrows = n_examples
-
-        fig, axes = plt.subplots(
-            nrows=nrows,
-            ncols=ncols,
-            figsize=(
-                4 * ncols,
-                3.5 * nrows,
-            ),
-            squeeze=False,
-            constrained_layout=True,
-        )
-
-        for row, index in enumerate(indices):
-
-            sample = self.samples[index]
-            loaded_images = []
-
-            for image_path in sample["image_paths"]:
-
-                image, _, _ = load_nifti(
-                    image_path,
-                    preprocess=True,
-                )
-
-                image = ensure_3d(
-                    image,
-                    image_path,
-                )
-
-                loaded_images.append(image)
-
-            mask = None
-
-            if self.TASK_TYPE == "segmentation":
-
-                mask, _, _ = load_nifti(
-                    sample["label"],
-                    preprocess=False,
-                )
-
-                mask = ensure_3d(
-                    mask,
-                    sample["label"],
-                )
-
-                mask_sum_per_depth = np.sum(
-                    mask > 0,
-                    axis=(0, 1),
-                )
-
-                if np.max(mask_sum_per_depth) > 0:
-                    slice_index = int(np.argmax(mask_sum_per_depth))
-                else:
-                    slice_index = mask.shape[-1] // 2
-
-            else:
-                slice_index = loaded_images[0].shape[-1] // 2
-
-            for col, (modality, image) in enumerate(
-                zip(
-                    self.MODALITIES,
-                    loaded_images,
-                )
-            ):
-
-                ax = axes[row, col]
-
-                slice_image = image[..., slice_index]
-
-                ax.imshow(
-                    slice_image.T,
-                    cmap="gray",
-                    origin="lower",
-                )
-
-                if mask is not None:
-
-                    slice_mask = mask[..., slice_index]
-
-                    masked = np.ma.masked_where(
-                        slice_mask == 0,
-                        slice_mask,
-                    )
-
-                    ax.imshow(
-                        masked.T,
-                        alpha=0.45,
-                        origin="lower",
-                    )
-
-                ax.set_title(f"{sample['subject']}\n" f"{modality}")
-
-                ax.axis("off")
-
-            if self.TASK_TYPE != "segmentation":
-
-                target = sample["label"]
-
-                target_text = (
-                    f"class={int(target)}"
-                    if self.TASK_TYPE == "classification"
-                    else f"value={float(target):.2f}"
-                )
-
-                axes[row, 0].set_title(f"{sample['subject']}\n" f"{target_text}")
-
-        fig.suptitle(
-            f"{self.TASK_NAME} — Example Gallery",
-            fontsize=18,
-            fontweight="bold",
-        )
-
-        fig.savefig(
+        create_gallery(
+            self.samples,
+            self.NUM_MODALITIES,
+            self.MODALITIES,
+            self.TASK_TYPE,
             self.gallery_path,
-            dpi=200,
-            bbox_inches="tight",
+            self.GALLERY_SIZE,
         )
-
-        plt.close(fig)
 
 
 @register_dataset("CLS002_FOMO26_Infarct")
