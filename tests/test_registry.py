@@ -44,10 +44,10 @@ class TestRegistry:
         ds_keys = STORE._instances["datasets"].keys()
         expected = {
             "CLS002_FOMO26_Infarct",
-            "SEG002_Meningioma",
-            "REG002_BrainAge",
-            "SEG002_TrigeminalNeuralgia",
-            "CLS002_Polymicrogyria",
+            "SEG009_FOMO26_Meningioma",
+            "REGR002_FOMO26_BrainAge",
+            "SEG010_FOMO26_TrigeminalNeuralgia",
+            "CLS003_FOMO26_Polymicrogyria",
         }
         assert expected.issubset(set(ds_keys))
 

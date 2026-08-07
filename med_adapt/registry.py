@@ -7,8 +7,8 @@ decorators.
 
 from __future__ import annotations
 
-from importlib import import_module
 from typing import TypeVar
+from importlib import import_module
 
 T = TypeVar("T")
 
@@ -42,9 +42,9 @@ class RegistryStore:
     _instance: "RegistryStore | None" = None
     _instances: dict[str, InstanceRegistry] = {}
 
+    TYPE_AUGS = "augs"
     TYPE_MODELS = "models"
     TYPE_DATASETS = "datasets"
-    TYPE_AUGS = "augs"
 
     STORE_TYPES = [TYPE_MODELS, TYPE_DATASETS, TYPE_AUGS]
 
@@ -103,14 +103,30 @@ def register_aug(name: str):
 
 
 # ---------------------------------------------------------------------------
-# Auto-import all submodules to trigger registrations
+# Lazy auto-import to trigger registrations
 # ---------------------------------------------------------------------------
+# Imports are deferred until first registry access to avoid circular-import
+# issues that arise when registry.py is loaded before the package tree is ready.
 
 _pkg = "med_adapt"
-for _name in STORE.STORE_TYPES:
-    try:
-        import_module(f".{_name}", package=_pkg)
-    except ImportError:
-        pass
 
-del _pkg, _name
+
+def _ensure_imported(_pkg: str = _pkg) -> None:
+    """Import all registry submodules to trigger decorator-based registrations."""
+    for _name in STORE.STORE_TYPES:
+        try:
+            import_module(f".{_name}", package=_pkg)
+        except ImportError:
+            pass
+
+
+# Patch get so the import runs before any lookup
+_original_get = STORE.get
+
+
+def _lazy_get(type_of: str, name: str) -> type:
+    _ensure_imported()
+    return _original_get(type_of, name)
+
+
+STORE.get = _lazy_get  # type: ignore[assignment]

@@ -5,12 +5,12 @@ Usage:
     python main.py --config configs/default.json --fold 0 --test
 """
 
-import os
 import argparse
+
 from pathlib import Path
 
-import lightning as pl
 import torch
+import lightning as pl
 
 from torchvision import transforms
 from lightning.pytorch.loggers import CSVLogger
@@ -22,10 +22,10 @@ from gardening_tools.modules.transforms.cropping_and_padding import (
 )
 
 from med_adapt.registry import STORE
-from med_adapt.utils.config import get_config, get_logger
-from med_adapt.utils.paths import get_results_path, get_config_path, get_data_path
 from med_adapt.utils.naming import get_run_name
 from med_adapt.datasets import build_dataloaders
+from med_adapt.utils.config import get_config, get_logger
+from med_adapt.utils.paths import get_results_path, get_data_path
 from med_adapt.augs.default import default_enable_aug, default_norm
 from med_adapt.trainer import (
     ClassificationTrainer,
@@ -307,18 +307,9 @@ def main():
     csv_logger = CSVLogger(results_path, name=run_name, version=f"fold{fold}")
 
     pl_trainer = pl.Trainer(
-        max_steps=config.trainer.max_steps,
         default_root_dir=Path(results_path) / run_name / f"fold{fold}",
         callbacks=[checkpoint_callback, last_checkpoint_callback, lr_monitor],
-        precision=config.trainer.precision,
-        accelerator=config.trainer.accelerator,
-        devices=config.trainer.devices,
-        strategy=config.trainer.strategy,
-        log_every_n_steps=config.trainer.max_steps // 100,
-        gradient_clip_val=config.trainer.gradient_clip_val,
-        val_check_interval=config.trainer.val_check_interval
-        or (config.trainer.max_steps // 10),
-        check_val_every_n_epoch=config.trainer.check_val_every_n_epoch,
+        **config.trainer.to_dict(),
         logger=csv_logger,
     )
 

@@ -6,8 +6,6 @@ import torch
 
 from torch import nn
 
-from med_adapt.layers import MemEffAttention
-from med_adapt.layers.attention import LoRAMemEffAttention, LoRALinear
 from med_adapt.utils.config import get_logger
 
 logger = get_logger(__name__)
@@ -78,6 +76,8 @@ def merge_all_lora(model: nn.Module) -> int:
         Number of LoRALinear modules merged (useful as a sanity check that
         it found what you expected).
     """
+    from med_adapt.layers.attention import LoRALinear
+
     count = 0
     for module in model.modules():
         if isinstance(module, LoRALinear):
@@ -122,25 +122,24 @@ def load_lora_state_dict(
 
     if missing_other:
         logger.warning(
-            "[load_lora_state_dict] WARNING: missing non-LoRA keys (unexpected): %s",
-            missing_other,
+            f"[load_lora_state_dict] WARNING: missing non-LoRA keys (unexpected): {missing_other}",
         )
     if result.unexpected_keys:
         logger.warning(
-            "[load_lora_state_dict] WARNING: unexpected keys: %s",
-            result.unexpected_keys,
+            f"[load_lora_state_dict] WARNING: unexpected keys: {result.unexpected_keys}",
         )
     logger.info(
-        "[load_lora_state_dict] OK -- %d LoRA params left at random init, "
-        "%d base params loaded from checkpoint.",
-        len(missing_lora),
-        len(remapped) - len(missing_other),
+        f"[load_lora_state_dict] OK -- {len(missing_lora)} LoRA params left at random init, "
+        f"{len(remapped) - len(missing_other)} base params loaded from checkpoint.",
     )
 
     return result.missing_keys, result.unexpected_keys
 
 
 if __name__ == "__main__":
+    from med_adapt.layers import MemEffAttention
+    from med_adapt.layers.attention import LoRAMemEffAttention
+
     device = "cuda" if torch.cuda.is_available() else "cpu"
 
     # simulate a "pretrained" plain-attention model + checkpoint

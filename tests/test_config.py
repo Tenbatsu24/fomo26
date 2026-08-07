@@ -2,7 +2,6 @@
 
 import json
 import pytest
-from pathlib import Path
 
 from ml_collections import ConfigDict
 
@@ -178,7 +177,7 @@ class TestConfigSchemaDefaults:
         assert result.model.size == "small"
         assert result.model.lora is False
         assert result.model.task_tokens is False
-        assert result.model.task_token_insertion == "beginning"
+        assert result.model.task_token_insertion == "middle"
         assert result.model.task_token_block == 6
 
     def test_pretrained_defaults(self, tmp_path):

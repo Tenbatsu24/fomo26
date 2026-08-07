@@ -59,7 +59,7 @@ class TemplateTrainer(pl.LightningModule):
         config["num_classes"] = num_classes
 
         self.config = config
-        self.gpu_aug = gpu_augmentations()
+        self.gpu_aug = gpu_augmentations
         self.normalisation = normalisation
         self.criterion = self.make_criterion()
         self.num_classes: int = self.config.num_classes
@@ -74,8 +74,7 @@ class TemplateTrainer(pl.LightningModule):
         self.model = model
         self._load_pretrained()
 
-        additional = getattr(self.model, "additional_trainable", None)
-        mark_trainable(self.model, additional_keys=additional)
+        mark_trainable(self.model, additional_keys=self.model.additional_trainable())
 
         self.optims, self.scheduler = self.make_opt_sched()
 
@@ -101,7 +100,7 @@ class TemplateTrainer(pl.LightningModule):
                 self.model,
                 state_dict,
                 strict=False,
-                ignore_loading=getattr(self.model, "do_not_load", lambda: None)(),
+                ignore_loading=self.model.do_not_load(),
             )
         else:
             missing, unexpected = self.model.load_state_dict(state_dict, strict=False)
@@ -116,7 +115,6 @@ class TemplateTrainer(pl.LightningModule):
     # ------------------------------------------------------------------
     # Optimiser / scheduler
     # ------------------------------------------------------------------
-
     def get_modules_for_opt(self):
         return [self.model]
 
@@ -162,35 +160,38 @@ class TemplateTrainer(pl.LightningModule):
             return {}
 
         return {
-            short_name: get_metric(m["type"], **dict(m.get("params", {})))
+            short_name: get_metric(
+                m["type"], **{k: v for k, v in m.items() if k != "type"}
+            )
             for short_name, m in metrics_cfg.items()
         }
 
     # ------------------------------------------------------------------
     # Forward / batch helpers
     # ------------------------------------------------------------------
+    def preprocess_batch(self, batch, train: bool) -> tuple[Any, Any]:
+        if train and self.gpu_aug is not None:
+            batch = self.gpu_aug(batch)
+        if self.normalisation is not None:
+            batch = self.normalisation(batch)
+
+        image, label = batch["image"], batch["label"]
+        return image, label
 
     def forward(self, x):
         return self.model(x)
 
     def batch_to_loss(self, batch, train=False):
-        """Compute loss from a batch dict. Override in subclass for dtype casts."""
-        x = batch["image"]
-        y = batch["label"]
+        image, label = self.preprocess_batch(batch, train)
 
-        if train and self.gpu_aug is not None:
-            x = self.gpu_aug(x)
-        if self.normalisation is not None:
-            x = self.normalisation(x)
-
-        outputs = self.model(x)
+        outputs = self(image)
         logits = (
             outputs
             if isinstance(outputs, torch.Tensor)
             else outputs.get("logits", outputs)
         )
-        loss = self.criterion(logits, y)
-        return loss, (logits, y)
+        loss = self.criterion(logits, label)
+        return loss, (logits, label)
 
     # ------------------------------------------------------------------
     # Logging helpers

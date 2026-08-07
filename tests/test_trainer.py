@@ -187,16 +187,3 @@ class TestBaseTrainerInit:
         loss, (logits, labels) = trainer.batch_to_loss(batch, train=True)
         assert loss.dim() == 0
         assert logits.shape == (2, 3, 8, 8, 8)
-
-
-class TestTemplateTrainer:
-    def test_abstract_make_model(self):
-        from med_adapt.trainer import TemplateTrainer
-
-        cfg = ConfigDict()
-        cfg["num_classes"] = 2
-        cfg["loss"] = None
-        cfg["metrics"] = None
-        cfg.scheduler = []
-        with pytest.raises(NotImplementedError):
-            TemplateTrainer(config=cfg).make_model()

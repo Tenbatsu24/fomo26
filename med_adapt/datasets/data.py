@@ -784,20 +784,27 @@ class MedicalTaskDataset(Dataset):
         if self.NUM_CLASSES is not None:
             logger.info(f"Number of classes: {self.NUM_CLASSES}")
 
+        def _fmt_channel_values(values: List[float]) -> str:
+            return "[" + " ".join([f"{v:.3f}" for v in values]) + "]"
+
         logger.info(
-            f"Mean per channel: {self.statistics['mean_per_channel']}",
+            f"Mean per channel: {_fmt_channel_values(self.statistics['mean_per_channel'])}",
         )
 
         logger.info(
-            f"Std per channel: {self.statistics['std_per_channel']}",
+            f"Std per channel: {_fmt_channel_values(self.statistics['std_per_channel'])}",
         )
 
         logger.info(
-            f"Mean resolution: {self.statistics['resolution']['mean']}",
+            f"Mean resolution: {[
+                _fmt_channel_values(channel_mean) for channel_mean in self.statistics['resolution']['mean']
+            ]}",
         )
 
         logger.info(
-            f"Mean spacing: {self.statistics['spacing']['mean']}",
+            f"Mean spacing: {[
+                _fmt_channel_values(channel_mean) for channel_mean in self.statistics['spacing']['mean']
+            ]}",
         )
 
         logger.info("=" * 80)
