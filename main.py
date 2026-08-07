@@ -26,7 +26,7 @@ from med_adapt.utils.naming import get_run_name
 from med_adapt.datasets import build_dataloaders
 from med_adapt.utils.config import get_config, get_logger
 from med_adapt.utils.paths import get_results_path, get_data_path
-from med_adapt.augs.default import default_enable_aug, default_norm, Torch_Resize
+from med_adapt.augs.default import default_enable_aug, default_disable_aug, default_norm, Torch_Resize
 from med_adapt.trainer import (
     ClassificationTrainer,
     RegressionTrainer,
@@ -134,7 +134,7 @@ def run_test_mode(
 ):
     """Run standalone test evaluation on a saved checkpoint."""
     metric = (
-        "acc" if task == "classification" else "iou" if task == "segmentation" else "l2"
+        "acc" if task == "classification" else "dice" if task == "segmentation" else "l2"
     )
 
     run_name = get_run_name(
@@ -279,7 +279,11 @@ def main():
         resize_to=config.data.resize_to,
     )
 
-    gpu_transforms = default_enable_aug(ndim=3)
+    if config.enable_aug:
+        gpu_transforms = default_enable_aug(ndim=3)
+    else:
+        gpu_transforms = default_disable_aug(ndim=3)
+
     norm_transforms = default_norm()
 
     trainer = TRAINER_CLASSES[task](

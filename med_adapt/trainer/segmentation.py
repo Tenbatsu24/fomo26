@@ -8,8 +8,12 @@ import torch
 
 from ml_collections import ConfigDict
 
+from med_adapt.utils.config import get_logger
 from med_adapt.inference import sliding_window_predict
 from med_adapt.trainer.template import TemplateTrainer
+
+
+logger = get_logger(__name__)
 
 
 class SegmentationTrainer(TemplateTrainer):
@@ -22,9 +26,9 @@ class SegmentationTrainer(TemplateTrainer):
     ):
         config["loss"] = {"type": "dice_ce"}
         config["metrics"] = {
-            "dice": {"type": "dice_score", "num_classes": config.num_classes},
             "iou": {"type": "mean_iou", "num_classes": config.num_classes},
         }
+
         super().__init__(config, model, gpu_augmentations, normalisation)
 
     def batch_to_loss(self, batch, train=False):
@@ -41,11 +45,11 @@ class SegmentationTrainer(TemplateTrainer):
 
     def test_step(self, batch, batch_idx):
         """Run test evaluation with sliding-window inference."""
+        if self.normalisation is not None:
+            batch = self.normalisation(batch)
+
         x = batch["image"]
         y = batch["label"]
-
-        if self.normalisation is not None:
-            x = self.normalisation(x)
 
         ps = getattr(self.model, "patch_size", 14)
         patch_size = ps if isinstance(ps, tuple) else (ps, ps)

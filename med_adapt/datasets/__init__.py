@@ -1,6 +1,9 @@
 from .data import (
     MedicalTaskDataset,
+)
+from .tasks import (
     Task1InfarctClassification,
+    Task1InfarctSegmentation,
     Task2MeningiomaSegmentation,
     Task3BrainAgeRegression,
     Task4TrigeminalNeuralgiaSegmentation,
@@ -11,6 +14,7 @@ from .utils import build_dataloaders
 __all__ = [
     "MedicalTaskDataset",
     "Task1InfarctClassification",
+    "Task1InfarctSegmentation",
     "Task2MeningiomaSegmentation",
     "Task3BrainAgeRegression",
     "Task4TrigeminalNeuralgiaSegmentation",

@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 
 
 def get_loss(name: str, **params):
@@ -30,34 +31,127 @@ def get_loss(name: str, **params):
     return losses[name](**params)
 
 
-class DiceCELoss(nn.Module):
-    """Combined Dice + Cross-Entropy loss for segmentation."""
+class MemoryEfficientSoftDiceLoss(nn.Module):
+    """
+    nnU-Net style MemoryEfficientSoftDiceLoss.
 
-    def __init__(self, smooth: float = 1e-5):
+    Parameters
+    ----------
+    smooth : float
+        Smoothing constant.
+    do_bg : bool
+        Include background class in Dice.
+    batch_dice : bool
+        Compute Dice across the whole batch.
+    """
+
+    def __init__(
+        self,
+        smooth: float = 1.0,
+        do_bg: bool = False,
+        batch_dice: bool = True,
+    ):
         super().__init__()
+
         self.smooth = smooth
+        self.do_bg = do_bg
+        self.batch_dice = batch_dice
+
+    def forward(
+        self,
+        logits: torch.Tensor,
+        target: torch.Tensor,
+    ) -> torch.Tensor:
+        """
+        logits: [B, C, H, W, D]
+        target: [B, 1, H, W, D] or [B, H, W, D]
+        """
+
+        if target.ndim == logits.ndim:
+            assert target.shape[1] == 1
+            target = target[:, 0]
+
+        target = target.long()
+
+        probs = F.softmax(logits, dim=1)
+
+        target_oh = F.one_hot(
+            target,
+            num_classes=logits.shape[1],
+        ).movedim(-1, 1).float()
+
+        if self.batch_dice:
+            dims = (0,) + tuple(range(2, probs.ndim))
+        else:
+            dims = tuple(range(2, probs.ndim))
+
+        intersection = torch.sum(
+            probs * target_oh,
+            dim=dims,
+        )
+
+        pred_sum = torch.sum(
+            probs,
+            dim=dims,
+        )
+
+        gt_sum = torch.sum(
+            target_oh,
+            dim=dims,
+        )
+
+        dice = (
+            2.0 * intersection + self.smooth
+        ) / (
+            pred_sum + gt_sum + self.smooth
+        )
+
+        if not self.do_bg:
+            if self.batch_dice:
+                dice = dice[1:]
+            else:
+                dice = dice[:, 1:]
+
+        return 1.0 - dice.mean()
+
+
+class DiceCELoss(nn.Module):
+    def __init__(
+        self,
+        smooth: float = 1e-5,
+        do_bg: bool = False,
+        batch_dice: bool = True,
+        ce_weight: float = 1.0,
+        dice_weight: float = 1.0,
+    ):
+        super().__init__()
+
         self.ce = nn.CrossEntropyLoss()
 
-    def forward(self, logits: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
-        target = target.long()
-        if target.ndim == logits.ndim:
-            target = target.squeeze(1)
-
-        ce_loss = self.ce(logits, target)
-
-        num_classes = logits.shape[1]
-        probs = nn.functional.softmax(logits, dim=1)
-        target_onehot = nn.functional.one_hot(target, num_classes=num_classes)
-        target_onehot = target_onehot.permute(
-            0, -1, *range(1, target_onehot.ndim - 1)
-        ).float()
-
-        dims = (0,) + tuple(range(2, probs.ndim))
-        intersection = torch.sum(probs * target_onehot, dim=dims)
-        cardinality = torch.sum(probs + target_onehot, dim=dims)
-        dice_loss = 1.0 - (
-            (2.0 * intersection + self.smooth) / (cardinality + self.smooth)
+        self.dice = MemoryEfficientSoftDiceLoss(
+            smooth=smooth,
+            do_bg=do_bg,
+            batch_dice=batch_dice,
         )
-        dice_loss = dice_loss.mean()
 
-        return ce_loss + dice_loss
+        self.ce_weight = ce_weight
+        self.dice_weight = dice_weight
+
+    def forward(
+        self,
+        logits: torch.Tensor,
+        target: torch.Tensor,
+    ) -> torch.Tensor:
+
+        if target.ndim == logits.ndim:
+            target_ce = target[:, 0].long()
+        else:
+            target_ce = target.long()
+
+        ce_loss = self.ce(logits, target_ce)
+        dice_loss = self.dice(logits, target)
+
+        return (
+            self.ce_weight * ce_loss
+            + self.dice_weight * dice_loss
+        )

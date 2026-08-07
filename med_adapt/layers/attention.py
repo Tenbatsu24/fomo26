@@ -177,7 +177,7 @@ class LoRAAttention(nn.Module):
         proj_bias: bool = True,
         attn_drop: float = 0.0,
         proj_drop: float = 0.0,
-        lora_r: int = 4,
+        lora_r: int = 16,
         lora_alpha: int = None,
         lora_dropout: float = 0.0,
         freeze_base: bool = True,

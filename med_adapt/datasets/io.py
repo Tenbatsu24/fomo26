@@ -82,7 +82,7 @@ def resample_nifti(
     if spacing == target_spacing:
         return data, affine, spacing
 
-    resampled, new_affine = _resample_volume(
+    resampled, new_affine = resample_volume(
         data, affine, target_spacing, spacing
     )
     return resampled, new_affine, target_spacing
