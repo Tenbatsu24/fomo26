@@ -26,52 +26,35 @@ class SegmentationTrainer(TemplateTrainer):
     ):
         config["loss"] = {"type": "dice_ce"}
         config["metrics"] = {
-            "iou": {"type": "mean_iou", "num_classes": config.num_classes},
+            "dice": {"type": "mean_dice", "num_classes": config.num_classes},
         }
         super().__init__(config, model, gpu_augmentations, normalisation)
-        self.bce_loss = nn.BCEWithLogitsLoss()
 
     def batch_to_loss(self, batch, train=False):
         image, label = self.preprocess_batch(batch, train)
         outputs = self(image)
 
-        final_seg_logits = outputs["seg_logits"]  # (B, C, H, W, D)
-        final_presence_logits = outputs["presence_logits"]  # (B, Q)
-        intermediate = outputs.get(
-            "intermediate", []
-        )  # list of (mask_logits, presence_logits)
+        # Deep supervision with list outputs (2D/3D adaptation models)
+        num_preds = len(outputs)
 
-        # DiceCE on final segmentation
-        dice_ce_loss = self.criterion(final_seg_logits, label)
+        # Weighted intermediate presence losses
+        all_losses = []
+        all_weights = []
+        for i, seg_pred in enumerate(outputs):
+            dice_ce_loss = self.criterion(seg_pred, label)
+            weight = 2 ** (i - (num_preds - 1))
 
-        # Per-volume presence GT: 1 if class i appears anywhere in volume
-        gt = label[:, 0].long() if label.ndim == 5 else label.long()
-        presence_gt = torch.stack(
-            [
-                (gt == i).any(dim=(1, 2, 3)).float()
-                for i in range(1, self.num_classes + 1)
-            ],
-            dim=1,
-        )  # (B, num_classes)
+            all_losses.append(dice_ce_loss)
+            all_weights.append(weight)
 
-        # BCE on final presence
-        final_bce = self.bce_loss(final_presence_logits, presence_gt)
-
-        # Deep supervision: BCE on intermediate presence logits
-        inter_bce = torch.tensor(0.0, device=label.device)
-        for _, pres_logits in intermediate:
-            inter_bce += self.bce_loss(pres_logits, presence_gt)
-        inter_bce /= max(len(intermediate), 1)
-
-        loss = dice_ce_loss + final_bce + 0.5 * inter_bce
         return (
             {
-                "loss": loss,
-                "dice_ce": dice_ce_loss,
-                "bce_final": final_bce,
-                "bce_inter": inter_bce,
+                "loss": sum([l * w for l, w in zip(all_losses, all_weights)]),
+                **{
+                    f"loss_{num_preds-i}": i_loss for i, i_loss in enumerate(all_losses)
+                },
             },
-            (final_seg_logits, label),
+            (outputs[-1], label),
         )
 
     def test_step(self, batch, batch_idx):

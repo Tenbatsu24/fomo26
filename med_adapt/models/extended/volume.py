@@ -62,21 +62,21 @@ class ViTv2Adaption3D(ViTv2):
             self.upscale = nn.Sequential(
                 ScaleBlock(self.embed_dim, conv_type="3d"),
                 ScaleBlock(self.embed_dim // 2, conv_type="3d"),
-                ScaleBlock(self.embed_dim // 4, conv_type="3d"),
-                ScaleBlock(self.embed_dim // 8, conv_type="3d"),
+                # ScaleBlock(self.embed_dim // 4, conv_type="3d"),
+                # ScaleBlock(self.embed_dim // 8, conv_type="3d"),
             )
             self.query_mlp = nn.Sequential(
                 nn.Linear(self.embed_dim, self.embed_dim, bias=True),
                 nn.GELU(),
-                nn.Linear(self.embed_dim, self.embed_dim // 4, bias=True),
+                nn.Linear(self.embed_dim, self.embed_dim // 2, bias=True),
                 nn.GELU(),
-                nn.Linear(self.embed_dim // 4, self.embed_dim // 16, bias=False),
+                nn.Linear(self.embed_dim // 2, self.embed_dim // 4, bias=False),
             )
         elif task == "classification":
             self.query_mlp = nn.Sequential(
-                nn.Linear(self.embed_dim, self.embed_dim, bias=True),
+                nn.Linear(self.embed_dim, self.embed_dim // 2, bias=True),
                 nn.GELU(),
-                nn.Linear(self.embed_dim, self.embed_dim // 4, bias=True),
+                nn.Linear(self.embed_dim // 2, self.embed_dim // 4, bias=True),
                 nn.GELU(),
                 nn.Linear(self.embed_dim // 4, classes, bias=False),
             )
@@ -170,9 +170,7 @@ class ViTv2Adaption3D(ViTv2):
         )
 
         upscaled = self.upscale(spatial)
-        return F.interpolate(
-            upscaled, size=(h, w, d), mode="trilinear", align_corners=False
-        )
+        return upscaled
 
     def forward(self, x, **kwargs):
         b, c, h, w, d = x.shape
@@ -187,7 +185,7 @@ class ViTv2Adaption3D(ViTv2):
             if i == self.query_from:
                 x = torch.cat((self.query_tokens.repeat(b, 1, 1), x), dim=1)
 
-            logger.debug(f"Depth: {i=}, {x.shape}")
+            # logger.debug(f"Depth: {i=}, {x.shape}")
             x = blk(x, attn_bias=attn_bias)
             if i >= self.query_from:
                 if self.task == "segmentation":
@@ -203,20 +201,27 @@ class ViTv2Adaption3D(ViTv2):
                     segmentation_pred = einsum(
                         mask_logits, query_logits, "b d ..., b q d -> b q ..."
                     )
-                    logger.debug(segmentation_pred.shape)
-                    preds.append(segmentation_pred)
+                    # logger.debug(segmentation_pred.shape)
+                    preds.append(
+                        F.interpolate(
+                            segmentation_pred,
+                            size=(h, w, d),
+                            mode="trilinear",
+                            align_corners=False,
+                        )
+                    )
                 else:
                     query_logits = x[:, : self.num_q_tokens, :]  # [B, q, d]
                     if self.task == "classification":
-                        cls_pred = self.query_mlp(query_logits)
-                        logger.debug(cls_pred.shape)
+                        cls_pred = self.query_mlp(query_logits.squeeze(1))
+                        # logger.debug(cls_pred.shape)
                         preds.append(cls_pred)
                     else:
                         reg_pred = [
                             self.query_mlp[f"class_{i}"](query_logits[:, i, :])
                             for i in range(self.num_q_tokens)
                         ]
-                        logger.debug([reg.shape for reg in reg_pred])
+                        # logger.debug([reg.shape for reg in reg_pred])
                         preds.append(reg_pred)
 
         return preds

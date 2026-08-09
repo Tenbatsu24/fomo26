@@ -30,10 +30,17 @@ class ClassificationTrainer(TemplateTrainer):
         label = label.long()
 
         outputs = self(image)
-        logits = (
-            outputs
-            if isinstance(outputs, torch.Tensor)
-            else outputs.get("logits", outputs)
-        )
-        loss = self.criterion(logits, label)
-        return loss, (logits, label)
+
+        if isinstance(outputs, list):
+            num_preds = len(outputs)
+            total_loss = None
+            for i, pred in enumerate(outputs):
+                weight = 2 ** (i - (num_preds - 1))
+                loss = self.criterion(pred, label)
+                total_loss = loss if total_loss is None else total_loss + weight * loss
+            logits = outputs[-1]
+        else:
+            logits = outputs
+            total_loss = self.criterion(logits, label)
+
+        return total_loss, (logits, label)

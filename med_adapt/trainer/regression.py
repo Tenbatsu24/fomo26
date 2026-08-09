@@ -28,10 +28,26 @@ class RegressionTrainer(TemplateTrainer):
         label = label.float()
 
         outputs = self(image)
-        logits = (
-            outputs
-            if isinstance(outputs, torch.Tensor)
-            else outputs.get("logits", outputs)
-        )
-        loss = self.criterion(logits, label)
-        return loss, (logits, label)
+
+        if isinstance(outputs, list):
+            num_preds = len(outputs)
+            total_loss = None
+            for i, pred in enumerate(outputs):
+                weight = 2 ** (i - (num_preds - 1))
+                if isinstance(pred, list):
+                    pred_loss = sum(self.criterion(p, label) for p in pred) / len(pred)
+                else:
+                    pred_loss = self.criterion(pred, label)
+                total_loss = (
+                    pred_loss if total_loss is None else total_loss + weight * pred_loss
+                )
+            logits = outputs[-1]
+        else:
+            logits = (
+                outputs
+                if isinstance(outputs, torch.Tensor)
+                else outputs.get("logits", outputs)
+            )
+            total_loss = self.criterion(logits, label)
+
+        return total_loss, (logits, label)

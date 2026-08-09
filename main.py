@@ -310,7 +310,9 @@ def main():
     results_path = get_results_path()
 
     metric = (
-        "acc" if task == "classification" else "iou" if task == "segmentation" else "l2"
+        "acc"
+        if task == "classification"
+        else "dice" if task == "segmentation" else "l2"
     )
 
     checkpoint_callback = ModelCheckpoint(

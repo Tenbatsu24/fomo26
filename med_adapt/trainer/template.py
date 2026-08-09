@@ -185,13 +185,32 @@ class TemplateTrainer(pl.LightningModule):
         image, label = self.preprocess_batch(batch, train)
 
         outputs = self(image)
-        logits = (
-            outputs
-            if isinstance(outputs, torch.Tensor)
-            else outputs.get("logits", outputs)
-        )
-        loss = self.criterion(logits, label)
-        return loss, (logits, label)
+
+        if isinstance(outputs, list):
+            # Deep supervision: weighted sum of per-block losses
+            num_preds = len(outputs)
+            total_loss = None
+            for i, pred in enumerate(outputs):
+                weight = 2 ** (i - (num_preds - 1))
+                if isinstance(pred, list):
+                    # Regression: list of per-class tensors
+                    pred_loss = sum(self.criterion(p, label) for p in pred) / len(pred)
+                else:
+                    pred_loss = self.criterion(pred, label)
+                if total_loss is None:
+                    total_loss = weight * pred_loss
+                else:
+                    total_loss = total_loss + weight * pred_loss
+            logits = outputs[-1]
+        else:
+            logits = (
+                outputs
+                if isinstance(outputs, torch.Tensor)
+                else outputs.get("logits", outputs)
+            )
+            total_loss = self.criterion(logits, label)
+
+        return total_loss, (logits, label)
 
     # ------------------------------------------------------------------
     # Logging helpers
