@@ -46,7 +46,7 @@ class Attention(nn.Module):
         self.proj = nn.Linear(dim, dim, bias=proj_bias)
         self.proj_drop = nn.Dropout(proj_drop)
 
-    def forward(self, x: Tensor, return_attn=False) -> Tensor:
+    def forward(self, x: Tensor, attn_bias=None) -> Tensor:
         """
         Adapted from https://gitlab.com/ziegleto-machine-learning/dino/-/tree/main/
         """
@@ -60,6 +60,9 @@ class Attention(nn.Module):
         q, k, v = qkv[0] * self.scale, qkv[1], qkv[2]
         attn = q @ k.transpose(-2, -1)
 
+        if attn_bias is not None:
+            attn = attn + attn_bias
+
         attn = attn.softmax(dim=-1)
         attn = self.attn_drop(attn)
 
@@ -67,9 +70,6 @@ class Attention(nn.Module):
         x = self.proj(x)
         x = self.proj_drop(x)
 
-        # Adaptation for returing attentions
-        if return_attn:
-            return attn
         return x
 
 
@@ -78,13 +78,13 @@ class MemEffAttention(Attention):
     Adapted from https://gitlab.com/ziegleto-machine-learning/dino/-/tree/main/
     """
 
-    def forward(self, x: Tensor, attn_bias=None, return_attn=False) -> Tensor:
+    def forward(self, x: Tensor, attn_bias=None) -> Tensor:
         if not XFORMERS_AVAILABLE:
             assert attn_bias is None, "xFormers is required for nested tensors usage"
             # Change this line
             # return super().forward(x)
             # Adaptation for returing attentions
-            return super().forward(x, return_attn)
+            return super().forward(x)
 
         B, N, C = x.shape
         qkv = self.qkv(x).reshape(B, N, 3, self.num_heads, C // self.num_heads)
@@ -92,11 +92,6 @@ class MemEffAttention(Attention):
         q, k, v = unbind(qkv, 2)
 
         x = memory_efficient_attention(q, k, v, attn_bias=attn_bias)
-        if return_attn:
-            # Support for XFORMERS to return attention
-            # Adapted from https://github.com/facebookresearch/dinov2/issues/90#issuecomment-1574001076
-            attn = x.permute(0, 2, 1, 3) @ v.permute(0, 2, 3, 1)
-            return attn
         x = x.reshape([B, N, C])
 
         x = self.proj(x)
@@ -208,7 +203,7 @@ class LoRAAttention(nn.Module):
         )
         self.proj_drop = nn.Dropout(proj_drop)
 
-    def forward(self, x: Tensor, return_attn=False) -> Tensor:
+    def forward(self, x: Tensor, attn_bias=None) -> Tensor:
         B, N, C = x.shape
         qkv = (
             self.qkv(x)
@@ -219,6 +214,9 @@ class LoRAAttention(nn.Module):
         q, k, v = qkv[0] * self.scale, qkv[1], qkv[2]
         attn = q @ k.transpose(-2, -1)
 
+        if attn_bias is not None:
+            attn = attn + attn_bias
+
         attn = attn.softmax(dim=-1)
         attn = self.attn_drop(attn)
 
@@ -226,8 +224,6 @@ class LoRAAttention(nn.Module):
         x = self.proj(x)
         x = self.proj_drop(x)
 
-        if return_attn:
-            return attn
         return x
 
 
@@ -237,10 +233,10 @@ class LoRAMemEffAttention(LoRAAttention):
     but built on top of `LoRAAttention` so `qkv`/`proj` carry LoRA adapters.
     """
 
-    def forward(self, x: Tensor, attn_bias=None, return_attn=False) -> Tensor:
+    def forward(self, x: Tensor, attn_bias=None) -> Tensor:
         if not XFORMERS_AVAILABLE:
             assert attn_bias is None, "xFormers is required for nested tensors usage"
-            return super().forward(x, return_attn)
+            return super().forward(x)
 
         B, N, C = x.shape
         qkv = self.qkv(x).reshape(B, N, 3, self.num_heads, C // self.num_heads)
@@ -248,37 +244,9 @@ class LoRAMemEffAttention(LoRAAttention):
         q, k, v = unbind(qkv, 2)
 
         x = memory_efficient_attention(q, k, v, attn_bias=attn_bias)
-        if return_attn:
-            attn = x.permute(0, 2, 1, 3) @ v.permute(0, 2, 3, 1)
-            return attn
+
         x = x.reshape([B, N, C])
 
         x = self.proj(x)
         x = self.proj_drop(x)
         return x
-
-
-if __name__ == "__main__":
-    device = "cuda" if torch.cuda.is_available() else "cpu"
-
-    _att = MemEffAttention(dim=32, num_heads=4).to(device)
-    logger.info(
-        f"Attention shape (return_attn=True): {_att(torch.randn(4, 16, 32, device=device), return_attn=True).shape}"
-    )
-    logger.info(f"Attention shape: {_att(torch.randn(4, 16, 32, device=device)).shape}")
-
-    # LoRA version: same output shapes, but only a small fraction of params trainable
-    _lora_att = LoRAMemEffAttention(dim=32, num_heads=4, lora_r=4).to(device)
-    logger.info(
-        f"LoRA Attention shape (return_attn=True): {_lora_att(torch.randn(4, 16, 32, device=device), return_attn=True).shape}"
-    )
-    logger.info(
-        f"LoRA Attention shape: {_lora_att(torch.randn(4, 16, 32, device=device)).shape}"
-    )
-
-    mark_only_lora_as_trainable(_lora_att)
-    total = sum(p.numel() for p in _lora_att.parameters())
-    trainable = sum(p.numel() for p in _lora_att.parameters() if p.requires_grad)
-    logger.info(
-        f"LoRA trainable params: {trainable}/{total} ({100 * trainable / total:.2f}%)"
-    )

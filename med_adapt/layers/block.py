@@ -80,20 +80,16 @@ class Block(nn.Module):
 
         self.sample_drop_ratio = drop_path
 
-    def forward(self, x: Tensor, return_attention=False) -> Tensor:
+    def forward(self, x: Tensor, attn_bias=None) -> Tensor:
         """
         Adapted from https://gitlab.com/ziegleto-machine-learning/dino/-/tree/main/
         """
 
         def attn_residual_func(x: Tensor) -> Tensor:
-            return self.ls1(self.attn(self.norm1(x)))
+            return self.ls1(self.attn(self.norm1(x), attn_bias=attn_bias))
 
         def ffn_residual_func(x: Tensor) -> Tensor:
             return self.ls2(self.mlp(self.norm2(x)))
-
-        # Adaptation for returning attentions
-        if return_attention:
-            attn = self.attn(self.norm1(x), return_attn=True)
 
         if self.training and self.sample_drop_ratio > 0.1:
             # the overhead is compensated only for a drop path rate larger than 0.1
@@ -113,10 +109,6 @@ class Block(nn.Module):
         else:
             x = x + attn_residual_func(x)
             x = x + ffn_residual_func(x)
-
-        # Adaptation for returing attentions
-        if return_attention:
-            return x, attn
 
         return x
 
@@ -145,18 +137,3 @@ def drop_add_residual_stochastic_depth(
         x_flat, 0, brange, residual.to(dtype=x.dtype), alpha=residual_scale_factor
     )
     return x_plus_residual.view_as(x)
-
-
-if __name__ == "__main__":
-    _device = (
-        "cuda"
-        if torch.cuda.is_available()
-        else "mps" if torch.backends.mps.is_available() else "cpu"
-    )
-    # Example usage
-    block = Block(dim=64, num_heads=8, drop_path=0.3).to(_device)
-    x = torch.randn(
-        10, 16, 64, device=_device
-    )  # Batch size 10, sequence length 16, feature dimension 64
-    output = block(x)
-    logger.info(f"Output shape: {output.shape} (should be (10, 16, 64))")

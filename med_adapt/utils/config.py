@@ -25,7 +25,7 @@ logger.remove()
 logger.add(
     lambda msg: print(msg, end=""),  # stdout sink
     format="<green>{time:HH:mm:ss}</green> | <level>{level: <8}</level> | {message}",
-    level="INFO",
+    level="DEBUG",
 )
 
 

@@ -10,7 +10,6 @@ def mark_trainable(
         "head",
         "input_adapter",
         "upscale",
-        "task_tokens",
     ),
     additional_keys: list[str] | None = None,
 ) -> tuple[list[str], list[str]]:

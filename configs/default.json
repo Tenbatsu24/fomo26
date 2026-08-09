@@ -3,17 +3,22 @@
     "variant": "3d",
     "size": "small",
     "lora": true,
-    "task_tokens": false,
-    "task_token_insertion": "middle",
-    "task_token_block": 6
   },
   "pretrained": {
     "checkpoint": "small/neco/encoder_teacher.ckpt"
   },
   "data": {
     "dataset_name": "CLS002_FOMO26_Infarct",
-    "crop_size": [224, 224, 16],
-    "volume_patch_size": [14, 14, 2],
+    "crop_size": [
+      224,
+      224,
+      16
+    ],
+    "volume_patch_size": [
+      14,
+      14,
+      2
+    ],
     "batch_size": 2,
     "num_workers": 1,
     "resample_spacing": "median",
@@ -23,7 +28,7 @@
   "optimizer": {
     "type": "AdamW",
     "params": {
-      "lr": 2e-3,
+      "lr": 0.002,
       "weight_decay": 0.05,
       "patch_embed_lr_mult": 0.2,
       "layerwise_decay": 0.9

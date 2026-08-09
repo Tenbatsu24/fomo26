@@ -1,17 +1,19 @@
 from typing import Literal
 from functools import partial
 
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from einops import rearrange
+from torch import Tensor
+from einops import rearrange, einsum
 
 from med_adapt.models.base import ViTv2
+from med_adapt.adapter import PatchEmbed3D
 from med_adapt.registry import register_model
-from med_adapt.adapter import PatchEmbed3D, AttentionPooling, TaskTokens
-from med_adapt.layers import Block, ScaleBlock, MemEffAttention, LoRAMemEffAttention
 from med_adapt.utils.config import get_logger
+from med_adapt.layers import Block, ScaleBlock, MemEffAttention, LoRAMemEffAttention
 
 logger = get_logger(__name__)
 
@@ -26,14 +28,15 @@ class ViTv2Adaption3D(ViTv2):
         task: Literal["regression", "classification", "segmentation", "none"],
         classes: int,
         *args,
-        task_token: bool = False,
-        task_token_insertion: Literal["beginning", "middle"] = "middle",
-        task_token_block: int = 6,
+        query_from: int = -6,
         **kwargs,
     ):
         super(ViTv2Adaption3D, self).__init__(*args, **kwargs)
 
         self.task = task
+        self.query_from = (
+            len(self.blocks) + query_from if query_from < 0 else query_from
+        )
 
         self.img_size = volume_size
         self.patch_size = volume_patch_size
@@ -49,41 +52,47 @@ class ViTv2Adaption3D(ViTv2):
             )
         )
 
-        if task in ["regression", "classification", "none"]:
-            self.attn_pool = AttentionPooling(self.embed_dim)
-            if task == "classification":
-                self.head = nn.Linear(self.embed_dim, classes)
-            elif task == "regression":
-                self.head = nn.Linear(self.embed_dim, 1)
-            else:
-                self.head = nn.Identity()
-        else:
+        self.num_q_tokens = 1 if task == "classification" else classes
+        self.query_tokens = nn.Parameter(
+            torch.zeros(1, self.num_q_tokens, self.embed_dim), requires_grad=True
+        )
+        nn.init.normal_(self.query_tokens, std=1e-6)
+
+        if task == "segmentation":
             self.upscale = nn.Sequential(
                 ScaleBlock(self.embed_dim, conv_type="3d"),
                 ScaleBlock(self.embed_dim // 2, conv_type="3d"),
                 ScaleBlock(self.embed_dim // 4, conv_type="3d"),
                 ScaleBlock(self.embed_dim // 8, conv_type="3d"),
             )
-            self.head = nn.Linear(self.embed_dim // 16, classes)
-
-        # Task tokens
-        self.task_token_enabled = task_token
-        self.task_token_insertion = task_token_insertion
-        self.task_token_block = task_token_block
-        if task_token:
-            num_task_tokens = (
-                classes if task in ["classification", "segmentation"] else 1
+            self.query_mlp = nn.Sequential(
+                nn.Linear(self.embed_dim, self.embed_dim, bias=True),
+                nn.GELU(),
+                nn.Linear(self.embed_dim, self.embed_dim // 4, bias=True),
+                nn.GELU(),
+                nn.Linear(self.embed_dim // 4, self.embed_dim // 16, bias=False),
             )
-            self.task_tokens = TaskTokens(
-                num_tokens=num_task_tokens,
-                embed_dim=self.embed_dim,
-                insertion=task_token_insertion,
-            )
-            logger.info(
-                f"Task tokens enabled: {num_task_tokens} tokens, insertion={task_token_insertion}, block={task_token_block}",
+        elif task == "classification":
+            self.query_mlp = nn.Sequential(
+                nn.Linear(self.embed_dim, self.embed_dim, bias=True),
+                nn.GELU(),
+                nn.Linear(self.embed_dim, self.embed_dim // 4, bias=True),
+                nn.GELU(),
+                nn.Linear(self.embed_dim // 4, classes, bias=False),
             )
         else:
-            self.task_tokens = None
+            self.query_mlp = nn.ModuleDict(
+                {
+                    f"class_{i}": nn.Sequential(
+                        nn.Linear(self.embed_dim, self.embed_dim, bias=True),
+                        nn.GELU(),
+                        nn.Linear(self.embed_dim, self.embed_dim // 4, bias=True),
+                        nn.GELU(),
+                        nn.Linear(self.embed_dim // 4, 1, bias=True),
+                    )
+                    for i in range(self.num_q_tokens)
+                }
+            )
 
     def interpolate_pos_encoding(self, x, h, w, d):
         previous_dtype = x.dtype
@@ -133,14 +142,9 @@ class ViTv2Adaption3D(ViTv2):
             previous_dtype
         )
 
-    def prepare_tokens_with_masks(self, x, masks=None):
+    def prepare_tokens(self, x):
         B, nc, h, w, d = x.shape
         x = self.patch_embed(x)
-
-        if masks is not None:
-            x = torch.where(
-                masks.unsqueeze(-1), self.mask_token.to(x.dtype).unsqueeze(0), x
-            )
 
         x = torch.cat((self.cls_token.expand(x.shape[0], -1, -1), x), dim=1)
         x = x + self.interpolate_pos_encoding(x, h, w, d)
@@ -155,74 +159,77 @@ class ViTv2Adaption3D(ViTv2):
                 dim=1,
             )
 
-        # Inject task tokens after CLS + register tokens
-        if self.task_tokens is not None and self.task_token_insertion == "beginning":
-            num_prefix = 1 + (
-                self.num_register_tokens if self.register_tokens is not None else 0
-            )
-            prefix = x[:, :num_prefix]
-            rest = x[:, num_prefix:]
-            x = torch.cat(
-                (prefix, self.task_tokens.tokens.expand(B, -1, -1), rest), dim=1
-            )
-
         return x
 
-    def forward(self, x, masks=None, last_self_attention=False, **kwargs):
+    def _mask_logits(self, patch_tokens, h, w, d) -> Tensor:
+        psh, psw, psd = self.patch_size
+        hp, wp, dp = h // psh, w // psw, d // psd
+
+        spatial = rearrange(
+            patch_tokens, "b (hp wp dp) c -> b c hp wp dp", hp=hp, wp=wp, dp=dp
+        )
+
+        upscaled = self.upscale(spatial)
+        return F.interpolate(
+            upscaled, size=(h, w, d), mode="trilinear", align_corners=False
+        )
+
+    def forward(self, x, **kwargs):
         b, c, h, w, d = x.shape
 
         # Run through transformer blocks manually to support middle insertion
-        x = self.prepare_tokens_with_masks(x, masks)
+        x = self.prepare_tokens(x)
 
+        preds = []
+
+        attn_bias = None
         for i, blk in enumerate(self.blocks):
-            if (
-                self.task_tokens is not None
-                and self.task_token_insertion == "middle"
-                and i == self.task_token_block
-            ):
-                num_prefix = 1 + (
-                    self.num_register_tokens if self.register_tokens is not None else 0
-                )
-                prefix = x[:, :num_prefix]
-                patches = x[:, num_prefix:]
-                x = torch.cat(
-                    (
-                        prefix,
-                        self.task_tokens.tokens.expand(x.shape[0], -1, -1),
-                        patches,
-                    ),
-                    dim=1,
-                )
+            if i == self.query_from:
+                x = torch.cat((self.query_tokens.repeat(b, 1, 1), x), dim=1)
 
-            if i < len(self.blocks) - 1:
-                x = blk(x)
-            else:
-                x = blk(x, return_attention=last_self_attention)
+            logger.debug(f"Depth: {i=}, {x.shape}")
+            x = blk(x, attn_bias=attn_bias)
+            if i >= self.query_from:
+                if self.task == "segmentation":
+                    mask_logits = self._mask_logits(
+                        x[:, self.num_q_tokens + self.num_register_tokens + 1 :, :],
+                        h,
+                        w,
+                        d,
+                    )  # [B, d, ...]
+                    query_logits = self.query_mlp(
+                        x[:, : self.num_q_tokens, :]
+                    )  # [B, q, d]
+                    segmentation_pred = einsum(
+                        mask_logits, query_logits, "b d ..., b q d -> b q ..."
+                    )
+                    logger.debug(segmentation_pred.shape)
+                    preds.append(segmentation_pred)
+                else:
+                    query_logits = x[:, : self.num_q_tokens, :]  # [B, q, d]
+                    if self.task == "classification":
+                        cls_pred = self.query_mlp(query_logits)
+                        logger.debug(cls_pred.shape)
+                        preds.append(cls_pred)
+                    else:
+                        reg_pred = [
+                            self.query_mlp[f"class_{i}"](query_logits[:, i, :])
+                            for i in range(self.num_q_tokens)
+                        ]
+                        logger.debug([reg.shape for reg in reg_pred])
+                        preds.append(reg_pred)
 
-        cls_tokens = self.norm(x[:, : self.num_register_tokens + 1])
-        patch_tokens = self.norm(x[:, self.num_register_tokens + 1 :])
-
-        if self.task in ["regression", "classification", "none"]:
-            return self.head(cls_tokens[:, 0])
-        elif self.task == "segmentation":
-            psh, psw, psd = self.patch_size
-            hp, wp, dp = h // psh, w // psw, d // psd
-
-            spatial = rearrange(
-                patch_tokens, "b (hp wp dp) c -> b c hp wp dp", hp=hp, wp=wp, dp=dp
-            )
-
-            upscaled = self.upscale(spatial)
-            rearranged = rearrange(upscaled, "b c ... -> b ... c")
-            logits = rearrange(self.head(rearranged), "b ... c -> b c ...")
-            return F.interpolate(
-                logits, size=(h, w, d), mode="trilinear", align_corners=False
-            )
-        else:
-            return cls_tokens[:, 0]
+        return preds
 
     def additional_trainable(self):
-        return ["patch_embed", "pos_embed"]
+        return [
+            "patch_embed",
+            "pos_embed",
+            "query_mlp",
+            "query_token",
+            "upscale",
+            "head",
+        ]
 
     def do_not_load(self):
         return ["pos_embed", "patch_embed"]
@@ -318,3 +325,10 @@ def vitv2_a_3d_large(
         **kwargs,
     )
     return model
+
+
+if __name__ == "__main__":
+    _m = vitv2_a_3d_tiny(
+        med_in_channels=1, task="segmentation", classes=2, lora=True
+    ).to("cuda")
+    _m(torch.randn(1, 1, 196, 196, 28, device="cuda", dtype=torch.float32))

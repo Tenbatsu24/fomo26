@@ -50,13 +50,10 @@ def named_apply(
 
 
 class BlockChunk(nn.ModuleList):
-    def forward(self, x, return_attention=False):
+    def forward(self, x, attn_bias=None):
         # Adaptation for returing attentions
         for i, b in enumerate(self):
-            if i < len(self) - 1:
-                x = b(x)
-            else:
-                return b(x, return_attention=return_attention)
+            x = b(x, attn_bias=attn_bias)
         return x
 
 
@@ -245,13 +242,9 @@ class ViTv2(nn.Module):
             previous_dtype
         )
 
-    def prepare_tokens_with_masks(self, x, masks=None):
+    def prepare_tokens(self, x):
         B, nc, w, h = x.shape
         x = self.patch_embed(x)
-        if masks is not None:
-            x = torch.where(
-                masks.unsqueeze(-1), self.mask_token.to(x.dtype).unsqueeze(0), x
-            )
 
         x = torch.cat((self.cls_token.expand(x.shape[0], -1, -1), x), dim=1)
         x = x + self.interpolate_pos_encoding(x, w, h)
@@ -268,21 +261,11 @@ class ViTv2(nn.Module):
 
         return x
 
-    def forward_features(self, x, masks=None, last_self_attention=False):
-        x = self.prepare_tokens_with_masks(x, masks)
+    def forward(self, x, **kwargs):
+        x = self.prepare_tokens(x)
 
         for i, blk in enumerate(self.blocks):
-            if i < len(self.blocks) - 1:
-                x = blk(x)
-            else:
-                x = blk(x, return_attention=last_self_attention)
-
-        attn = None
-        if last_self_attention:
-            x, attn = x
-            # Attention is selected from the cls token to the patch tokens only
-            # Thus, we ignore the cls from the patch tokens (i.e., start from 1)
-            attn = attn[:, :, 0, self.num_register_tokens + 1 :]
+            x = blk(x)
 
         cls_tokens = self.norm(x[:, : self.num_register_tokens + 1])
         patch_tokens = self.norm(x[:, self.num_register_tokens + 1 :])
@@ -291,122 +274,7 @@ class ViTv2(nn.Module):
             "latent": cls_tokens[:, 0],
             "patch_latent": patch_tokens,
             "raw_latent": x[:, 0],
-            "last_self_attention": attn,
         }
-
-    def _get_intermediate_layers_not_chunked(self, x, n=1):
-        x = self.prepare_tokens_with_masks(x)
-        # If n is an int, take the n last blocks. If it's a list, take them
-        output, total_block_len = [], len(self.blocks)
-        blocks_to_take = (
-            range(total_block_len - n, total_block_len) if isinstance(n, int) else n
-        )
-        for i, blk in enumerate(self.blocks):
-            x = blk(x)
-            if i in blocks_to_take:
-                output.append(x)
-        assert len(output) == len(
-            blocks_to_take
-        ), f"only {len(output)} / {len(blocks_to_take)} blocks found"
-        return output
-
-    def _get_intermediate_layers_chunked(self, x, n=1):
-        x = self.prepare_tokens_with_masks(x)
-        output, i, total_block_len = [], 0, len(self.blocks[-1])
-        # If n is an int, take the n last blocks. If it's a list, take them
-        blocks_to_take = (
-            range(total_block_len - n, total_block_len) if isinstance(n, int) else n
-        )
-        for block_chunk in self.blocks:
-            for blk in block_chunk[i:]:  # Passing the nn.Identity()
-                x = blk(x)
-                if i in blocks_to_take:
-                    output.append(x)
-                i += 1
-        assert len(output) == len(
-            blocks_to_take
-        ), f"only {len(output)} / {len(blocks_to_take)} blocks found"
-        return output
-
-    def get_intermediate_layers(
-        self,
-        x: torch.Tensor,
-        n: Union[int, Sequence] = 1,  # Layers or n last layers to take
-        reshape: bool = False,
-        return_class_token: bool = False,
-        norm=True,
-    ) -> Tuple[Union[torch.Tensor, Tuple[torch.Tensor]]]:
-        if self.chunked_blocks:
-            outputs = self._get_intermediate_layers_chunked(x, n)
-        else:
-            outputs = self._get_intermediate_layers_not_chunked(x, n)
-
-        class_tokens = [
-            (
-                out[:, 0]
-                if not norm
-                else self.norm(out[:, : 1 + self.num_register_tokens])[:, 0]
-            )
-            for out in outputs
-        ]
-        outputs = [
-            (
-                out[:, 1 + self.num_register_tokens :]
-                if not norm
-                else (
-                    self.norm(out[:, self.num_register_tokens + 1 :])
-                    if self.norm_patch is None
-                    else self.norm_patch(out[:, self.num_register_tokens + 1 :])
-                )
-            )
-            for out in outputs
-        ]
-
-        if reshape:
-            B, _, w, h = x.shape
-            outputs = [
-                out.reshape(B, w // self.patch_size, h // self.patch_size, -1)
-                .permute(0, 3, 1, 2)
-                .contiguous()
-                for out in outputs
-            ]
-        if return_class_token:
-            return tuple(zip(outputs, class_tokens))
-        return tuple(outputs)
-
-    def forward(self, xs, masks=None, last_self_attention=False, **kwargs):
-        if not (isinstance(xs, list) or isinstance(xs, tuple)):
-            return self.forward_features(xs, masks, last_self_attention)
-        else:
-            raise NotImplementedError("Not implemented for list of inputs")
-
-    def forward_backbone(self, x, last_self_attention=False):
-        out_dict = self.forward_features(x, last_self_attention=last_self_attention)
-        cls_token = out_dict["latent"]
-        x = out_dict["patch_latent"]
-        # Combine the cls token and the patch tokens
-        x = torch.cat((cls_token.unsqueeze(1), x), dim=1)
-        if last_self_attention:
-            return x, out_dict["last_self_attention"]
-        return x
-
-    def get_last_selfattention(self, x, masks=None):
-        """
-        Adapted from https://gitlab.com/ziegleto-machine-learning/dino/-/tree/main/
-        """
-        if isinstance(x, list):
-            raise NotImplementedError("Not implemented for list of inputs")
-            # return self.forward_features_list(x, masks)
-
-        x = self.prepare_tokens_with_masks(x, masks)
-
-        # Run through model, at the last block just return the attention.
-        for i, blk in enumerate(self.blocks):
-            if i < len(self.blocks) - 1:
-                x = blk(x)
-            else:
-                _, attn = blk(x, return_attention=True)
-                return attn
 
     def additional_trainable(self):
         return None
@@ -500,13 +368,3 @@ def vitv2_large(patch_size=16, num_register_tokens=4, **kwargs):
         **kwargs,
     )
     return model
-
-
-if __name__ == "__main__":
-    _model = vitv2_tiny(patch_size=16, num_register_tokens=4, lora=True).cuda()
-    _out = _model(torch.randn(2, 3, 224, 224, device="cuda"), last_self_attention=True)
-
-    logger.info(f"Output shapes: { {k: v.shape for k, v in _out.items()} }")
-
-    _attn = torch.softmax(_out["last_self_attention"], dim=-1)
-    logger.info(f"Attention sum over last dim: {_attn.sum(-1)}")

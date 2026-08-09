@@ -11,6 +11,7 @@ from .schedulers import (
     StepSched,
     StepCycleSched,
 )
+from .mask_annealing import MaskAnnealer
 
 __all__ = [
     "Schedule",
@@ -26,4 +27,5 @@ __all__ = [
     "MultiStep",
     "StepSched",
     "StepCycleSched",
+    "MaskAnnealer",
 ]
