@@ -37,7 +37,7 @@ from med_adapt.trainer import (
     RegressionTrainer,
     SegmentationTrainer,
 )
-from med_adapt.utils.lora import merge_all_lora
+from med_adapt.utils.lora import convert_state_dict
 
 logger = get_logger(__name__)
 
@@ -107,27 +107,64 @@ def build_model(config, task, n_modalities, n_classes, lora, mea):
 
 
 def export_model_to_onnx(
-    model,
+    checkpoint_path: Path,
     config,
     task,
     n_modalities,
+    n_classes,
     run_dir: Path,
     checkpoint_name: str = "model",
 ):
-    """Export the (optionally LoRA-merged) model to ONNX.
+    """Load a checkpoint, convert LoRA→plain if needed, and export to ONNX.
 
-    Merges LoRA weights into the base model when ``config.model.lora`` is
-    enabled, then exports to ONNX so the final weights are baked in.
+    Steps:
+    1. Load the checkpoint state dict.
+    2. If the training used LoRA, run ``convert_state_dict(..., to_lora=False)``
+       to remap ``qkv.base.weight`` → ``qkv.weight`` and drop ``lora_A/B``.
+    3. Build a fresh plain model (``lora=False, mea=False``) so the export
+       does not contain xFormers / LoRA ops that ONNX cannot handle.
+    4. Load the (possibly converted) state dict with ``strict=True`` and
+       verify that no keys are missing or unexpected.
+    5. Export the plain model to ONNX.
     """
     import torch.onnx
 
-    if config.model.lora:
-        n_merged = merge_all_lora(model)
-        logger.info("[main] Merged {n} LoRA layers before ONNX export.", n=n_merged)
+    # 1. Load checkpoint
+    ckpt = torch.load(checkpoint_path, map_location="cpu")
+    if isinstance(ckpt, dict) and "state_dict" in ckpt:
+        ckpt = ckpt["state_dict"]
 
+    # 2. Convert LoRA naming → plain naming
+    if config.model.lora:
+        ckpt = convert_state_dict(ckpt, to_lora=False)
+        logger.info(
+            "[main] Converted LoRA state dict → plain for {name}.onnx",
+            name=checkpoint_name,
+        )
+
+    # 3. Build plain model (no LoRA, no MemEffAttention)
+    model = build_model(config, task, n_modalities, n_classes, lora=False, mea=False)
+
+    # 4. Load with strict check
+    result = model.load_state_dict(ckpt, strict=True)
+    if result.missing_keys:
+        logger.warning(
+            "[main] Missing keys when loading {name}: {keys}",
+            name=checkpoint_name,
+            keys=result.missing_keys,
+        )
+    if result.unexpected_keys:
+        logger.warning(
+            "[main] Unexpected keys when loading {name}: {keys}",
+            name=checkpoint_name,
+            keys=result.unexpected_keys,
+        )
+
+    model.eval()
+
+    # 5. Export
     crop_size = tuple(config.data.crop_size)
     dummy_input = torch.randn(1, n_modalities, crop_size[0], crop_size[1], crop_size[2])
-
     onnx_path = run_dir / f"{checkpoint_name}.onnx"
     torch.onnx.export(
         model,
@@ -249,11 +286,22 @@ def run_test_mode(
 
     # Disable pretrained loading in test mode — we already loaded the test checkpoint above.
     config["pretrained"]["checkpoint"] = None
-    trainer = TRAINER_CLASSES[task](config=config, model=model)
+    trainer = TRAINER_CLASSES[task](
+        config=config,
+        model=model,
+        gpu_augmentations=default_disable_aug(ndim=3),
+        normalisation=default_norm(),
+    )
 
     # Export the final model to ONNX before running test.
     export_model_to_onnx(
-        model, config, task, n_modalities, run_dir, checkpoint_name="best"
+        checkpoint_path,
+        config,
+        task,
+        n_modalities,
+        n_classes,
+        run_dir,
+        checkpoint_name="best",
     )
 
     run_name_test = f"{run_name}-test"
@@ -408,31 +456,26 @@ def main():
     pl_trainer.fit(trainer, train_dataloaders=train_dl, val_dataloaders=val_dl)
 
     # Export both checkpoints to ONNX.
-    # Best model
-    model_best = build_model(
+    export_model_to_onnx(
+        Path(checkpoint_callback.best_model_path),
         config,
         task,
         n_modalities,
         n_classes,
-    )
-    ckpt_best = torch.load(checkpoint_callback.best_model_path, map_location="cpu")
-    if isinstance(ckpt_best, dict) and "state_dict" in ckpt_best:
-        ckpt_best = ckpt_best["state_dict"]
-    model_best.load_state_dict(ckpt_best, strict=False)
-    export_model_to_onnx(
-        model_best, config, task, n_modalities, log_dir, checkpoint_name="best"
+        log_dir,
+        checkpoint_name="best",
     )
 
-    # Last model
     last_path = Path(last_checkpoint_callback.last_model_path)
     if last_path.exists():
-        model_last = build_model(config, task, n_modalities, n_classes)
-        ckpt_last = torch.load(last_path, map_location="cpu")
-        if isinstance(ckpt_last, dict) and "state_dict" in ckpt_last:
-            ckpt_last = ckpt_last["state_dict"]
-        model_last.load_state_dict(ckpt_last, strict=False)
         export_model_to_onnx(
-            model_last, config, task, n_modalities, log_dir, checkpoint_name="last"
+            last_path,
+            config,
+            task,
+            n_modalities,
+            n_classes,
+            log_dir,
+            checkpoint_name="last",
         )
 
     logger.info("\n[main] Running test evaluation on fold {fold}...", fold=fold)
