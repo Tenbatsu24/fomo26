@@ -144,7 +144,12 @@ def export_model_to_onnx(
 
 
 def find_best_checkpoint(run_dir, metric, mode):
-    """Find the best checkpoint in a run directory."""
+    """Find the best checkpoint in a run directory.
+
+    Looks for a checkpoint whose name contains ``metric`` followed by ``=``
+    and a numeric score (e.g. ``best-acc=0.950.ckpt``). Falls back to
+    ``best.ckpt`` when no scored checkpoint is found.
+    """
     ckpt_dir = Path(run_dir)
     if not ckpt_dir.exists():
         return None
@@ -153,18 +158,26 @@ def find_best_checkpoint(run_dir, metric, mode):
     if not checkpoints:
         return None
 
-    def _score(p):
-        name = p.name
-        for part in name.split("-"):
-            if metric in part:
-                try:
-                    val = float(part.split("=")[1].split(".")[0])
-                    return val if mode == "max" else -val
-                except (ValueError, IndexError):
-                    pass
-        return 0.0
+    scored = [p for p in checkpoints if metric in p.name and "=" in p.name]
+    if scored:
 
-    return max(checkpoints, key=_score)
+        def _score(p):
+            for part in p.name.split("-"):
+                if part.startswith(f"{metric}="):
+                    try:
+                        val = float(part.split("=")[1].split(".")[0])
+                        return val if mode == "max" else -val
+                    except (ValueError, IndexError):
+                        pass
+            return 0.0
+
+        return max(scored, key=_score)
+
+    # Fallback to best.ckpt / last.ckpt
+    best = ckpt_dir / "best.ckpt"
+    if best.exists():
+        return best
+    return max(checkpoints, key=lambda p: p.stat().st_mtime)
 
 
 def run_test_mode(
@@ -360,23 +373,29 @@ def main():
         else "dice" if task == "segmentation" else "l2"
     )
 
+    lr_monitor = LearningRateMonitor(logging_interval="step")
+    csv_logger = CSVLogger(results_path, name=f"{run_name}/fold_{fold}")
+    log_dir = Path(csv_logger.log_dir)
+
     checkpoint_callback = ModelCheckpoint(
-        dirpath=Path(results_path) / run_name / f"fold{fold}",
-        filename=f"best",
+        dirpath=log_dir,
+        filename=f"step={{step}}-val_{{{metric}}}={{val/{metric}:.3f}}",
         monitor=f"val/{metric}",
+        auto_insert_metric_name=False,
         save_top_k=1,
         mode="max" if task in ["classification", "segmentation"] else "min",
+        save_last=False,
+        enable_version_counter=False,
     )
     last_checkpoint_callback = ModelCheckpoint(
-        dirpath=Path(results_path) / run_name / f"fold{fold}",
+        dirpath=log_dir,
         filename="last",
         save_last=True,
+        enable_version_counter=False,
     )
-    lr_monitor = LearningRateMonitor(logging_interval="step")
-    csv_logger = CSVLogger(results_path, name=run_name, version=f"fold{fold}")
 
     pl_trainer = pl.Trainer(
-        default_root_dir=Path(results_path) / run_name / f"fold{fold}",
+        default_root_dir=log_dir,
         callbacks=[checkpoint_callback, last_checkpoint_callback, lr_monitor],
         **config.trainer.to_dict(),
         logger=csv_logger,
@@ -384,15 +403,28 @@ def main():
 
     pl_trainer.fit(trainer, train_dataloaders=train_dl, val_dataloaders=val_dl)
 
-    # Export the final model to ONNX before running test.
+    # Export both checkpoints to ONNX.
+    # Best model
+    model_best = build_model(config, task, n_modalities, n_classes)
+    ckpt_best = torch.load(checkpoint_callback.best_model_path, map_location="cpu")
+    if isinstance(ckpt_best, dict) and "state_dict" in ckpt_best:
+        ckpt_best = ckpt_best["state_dict"]
+    model_best.load_state_dict(ckpt_best, strict=False)
     export_model_to_onnx(
-        model,
-        config,
-        task,
-        n_modalities,
-        Path(results_path) / run_name / f"fold{fold}",
-        checkpoint_name="final",
+        model_best, config, task, n_modalities, log_dir, checkpoint_name="best"
     )
+
+    # Last model
+    last_path = Path(last_checkpoint_callback.last_model_path)
+    if last_path.exists():
+        model_last = build_model(config, task, n_modalities, n_classes)
+        ckpt_last = torch.load(last_path, map_location="cpu")
+        if isinstance(ckpt_last, dict) and "state_dict" in ckpt_last:
+            ckpt_last = ckpt_last["state_dict"]
+        model_last.load_state_dict(ckpt_last, strict=False)
+        export_model_to_onnx(
+            model_last, config, task, n_modalities, log_dir, checkpoint_name="last"
+        )
 
     logger.info("\n[main] Running test evaluation on fold {fold}...", fold=fold)
     pl_trainer.test(trainer, dataloaders=val_dl)
