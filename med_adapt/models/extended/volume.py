@@ -13,7 +13,14 @@ from med_adapt.models.base import ViTv2
 from med_adapt.adapter import PatchEmbed3D
 from med_adapt.registry import register_model
 from med_adapt.utils.config import get_logger
-from med_adapt.layers import Block, ScaleBlock, MemEffAttention, LoRAMemEffAttention
+from med_adapt.layers import (
+    Block,
+    ScaleBlock,
+    Attention,
+    MemEffAttention,
+    LoRAAttention,
+    LoRAMemEffAttention,
+)
 
 logger = get_logger(__name__)
 
@@ -231,7 +238,7 @@ class ViTv2Adaption3D(ViTv2):
             "patch_embed",
             "pos_embed",
             "query_mlp",
-            "query_token",
+            "query_tokens",
             "upscale",
             "head",
         ]
@@ -242,7 +249,11 @@ class ViTv2Adaption3D(ViTv2):
 
 @register_model("vitv2_a_3d_tiny")
 def vitv2_a_3d_tiny(
-    volume_size=(224, 224, 32), volume_patch_size=(14, 14, 2), lora=False, **kwargs
+    volume_size=(224, 224, 32),
+    volume_patch_size=(14, 14, 2),
+    lora=False,
+    mea=True,
+    **kwargs,
 ):
     if "init_values" not in kwargs:
         kwargs["init_values"] = 0.1
@@ -255,7 +266,12 @@ def vitv2_a_3d_tiny(
         num_heads=3,
         mlp_ratio=4,
         block_fn=partial(
-            Block, attn_class=LoRAMemEffAttention if lora else MemEffAttention
+            Block,
+            attn_class=(
+                (LoRAMemEffAttention if mea else LoRAAttention)
+                if lora
+                else (MemEffAttention if mea else Attention)
+            ),
         ),
         num_register_tokens=4,
         **kwargs,
@@ -265,7 +281,11 @@ def vitv2_a_3d_tiny(
 
 @register_model("vitv2_a_3d_small")
 def vitv2_a_3d_small(
-    volume_size=(224, 224, 32), volume_patch_size=(14, 14, 2), lora=False, **kwargs
+    volume_size=(224, 224, 32),
+    volume_patch_size=(14, 14, 2),
+    lora=False,
+    mea=True,
+    **kwargs,
 ):
     if "init_values" not in kwargs:
         kwargs["init_values"] = 0.1
@@ -278,7 +298,12 @@ def vitv2_a_3d_small(
         num_heads=6,
         mlp_ratio=4,
         block_fn=partial(
-            Block, attn_class=LoRAMemEffAttention if lora else MemEffAttention
+            Block,
+            attn_class=(
+                (LoRAMemEffAttention if mea else LoRAAttention)
+                if lora
+                else (MemEffAttention if mea else Attention)
+            ),
         ),
         num_register_tokens=4,
         **kwargs,
@@ -288,7 +313,11 @@ def vitv2_a_3d_small(
 
 @register_model("vitv2_a_3d_base")
 def vitv2_a_3d_base(
-    volume_size=(224, 224, 32), volume_patch_size=(14, 14, 2), lora=False, **kwargs
+    volume_size=(224, 224, 32),
+    volume_patch_size=(14, 14, 2),
+    lora=False,
+    mea=True,
+    **kwargs,
 ):
     if "init_values" not in kwargs:
         kwargs["init_values"] = 0.1
@@ -301,7 +330,12 @@ def vitv2_a_3d_base(
         num_heads=12,
         mlp_ratio=4,
         block_fn=partial(
-            Block, attn_class=LoRAMemEffAttention if lora else MemEffAttention
+            Block,
+            attn_class=(
+                (LoRAMemEffAttention if mea else LoRAAttention)
+                if lora
+                else (MemEffAttention if mea else Attention)
+            ),
         ),
         num_register_tokens=4,
         **kwargs,
@@ -311,7 +345,11 @@ def vitv2_a_3d_base(
 
 @register_model("vitv2_a_3d_large")
 def vitv2_a_3d_large(
-    volume_size=(224, 224, 32), volume_patch_size=(14, 14, 2), lora=False, **kwargs
+    volume_size=(224, 224, 32),
+    volume_patch_size=(14, 14, 2),
+    lora=False,
+    mea=True,
+    **kwargs,
 ):
     if "init_values" not in kwargs:
         kwargs["init_values"] = 1e-5
@@ -324,7 +362,12 @@ def vitv2_a_3d_large(
         num_heads=16,
         mlp_ratio=4,
         block_fn=partial(
-            Block, attn_class=LoRAMemEffAttention if lora else MemEffAttention
+            Block,
+            attn_class=(
+                (LoRAMemEffAttention if mea else LoRAAttention)
+                if lora
+                else (MemEffAttention if mea else Attention)
+            ),
         ),
         num_register_tokens=4,
         **kwargs,

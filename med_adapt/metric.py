@@ -166,9 +166,13 @@ def get_metric(name: str, **params):
         A torchmetrics :class:`Metric` instance.
     """
     metrics = {
-        "accuracy": lambda **p: MulticlassAccuracy(**p),
-        "acc": lambda **p: MulticlassAccuracy(**p),
-        "auroc": lambda **p: MulticlassAUROC(**p),
+        "accuracy": lambda **p: MulticlassAccuracy(
+            **p, ignore_index=0, average="macro"
+        ),
+        "acc": lambda **p: MulticlassAccuracy(**p, ignore_index=0, average="macro"),
+        "auroc": lambda **p: MulticlassAUROC(
+            **p, ignore_index=0, average="macro", thresholds=11
+        ),
         "mse": lambda **p: MeanSquaredError(squared=True, **p),
         "rmse": lambda **p: MeanSquaredError(squared=False, **p),
         "l2": lambda **p: MeanSquaredError(squared=False, **p),

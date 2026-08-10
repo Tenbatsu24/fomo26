@@ -6,7 +6,13 @@ from .layer_scale import LayerScale
 from .patch_embed import PatchEmbed
 from .scale_block import ScaleBlock
 from .swiglu_ffn import SwiGLUFFN, SwiGLUFFNFused
-from .attention import MemEffAttention, LoRAMemEffAttention, CrossAttentionBlock
+from .attention import (
+    Attention,
+    MemEffAttention,
+    LoRAAttention,
+    LoRAMemEffAttention,
+    CrossAttentionBlock,
+)
 
 __all__ = [
     "RMSNorm",
@@ -18,7 +24,9 @@ __all__ = [
     "SwiGLUFFN",
     "SwiGLUFFNFused",
     "ScaleBlock",
+    "Attention",
     "MemEffAttention",
+    "LoRAAttention",
     "LoRAMemEffAttention",
     "CrossAttentionBlock",
 ]

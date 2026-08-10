@@ -75,7 +75,7 @@ def build_cpu_transforms(crop_size, training, task, resize_to=None):
     return transforms.Compose(tforms) if tforms else None
 
 
-def build_model(config, task, n_modalities, n_classes):
+def build_model(config, task, n_modalities, n_classes, lora, mea):
     """Build model from registry using config parameters."""
     variant = config.model.variant
     size = config.model.size
@@ -91,7 +91,8 @@ def build_model(config, task, n_modalities, n_classes):
             med_in_channels=n_modalities,
             task=task,
             classes=n_classes,
-            lora=config.model.lora,
+            lora=lora,
+            mea=mea,
         )
     else:
         return builder(
@@ -100,7 +101,8 @@ def build_model(config, task, n_modalities, n_classes):
             med_in_channels=n_modalities,
             task=task,
             classes=n_classes,
-            lora=config.model.lora,
+            lora=lora,
+            mea=mea,
         )
 
 
@@ -131,7 +133,7 @@ def export_model_to_onnx(
         model,
         dummy_input,
         str(onnx_path),
-        opset_version=17,
+        opset_version=18,
         input_names=["input"],
         output_names=["output"],
         dynamic_axes={
@@ -220,7 +222,9 @@ def run_test_mode(
 
     logger.info("[main] Loading checkpoint: {ckpt}", ckpt=checkpoint_path)
 
-    model = build_model(config, task, n_modalities, n_classes)
+    model = build_model(
+        config, task, n_modalities, n_classes, lora=config.model.lora, mea=True
+    )
     crop_size = tuple(config.data.crop_size)
     test_transforms = build_cpu_transforms(
         crop_size, training=False, task=task, resize_to=config.data.resize_to
@@ -330,7 +334,7 @@ def main():
         crop_size, training=False, task=task, resize_to=config.data.resize_to
     )
 
-    model = build_model(config, task, n_modalities, n_classes)
+    model = build_model(config, task, n_modalities, n_classes, config.model.lora, True)
     train_dl, val_dl, _ = build_dataloaders(
         dataset_class=dataset_class,
         root=data_root,
@@ -379,7 +383,7 @@ def main():
 
     checkpoint_callback = ModelCheckpoint(
         dirpath=log_dir,
-        filename=f"step={{step}}-val_{{{metric}}}={{val/{metric}:.3f}}",
+        filename=f"step={{step}}-val_{metric}={{val/{metric}:.3f}}",
         monitor=f"val/{metric}",
         auto_insert_metric_name=False,
         save_top_k=1,
@@ -405,7 +409,12 @@ def main():
 
     # Export both checkpoints to ONNX.
     # Best model
-    model_best = build_model(config, task, n_modalities, n_classes)
+    model_best = build_model(
+        config,
+        task,
+        n_modalities,
+        n_classes,
+    )
     ckpt_best = torch.load(checkpoint_callback.best_model_path, map_location="cpu")
     if isinstance(ckpt_best, dict) and "state_dict" in ckpt_best:
         ckpt_best = ckpt_best["state_dict"]

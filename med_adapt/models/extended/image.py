@@ -14,7 +14,9 @@ from med_adapt.adapter import InputChannelAdapter
 from med_adapt.layers import (
     Block,
     ScaleBlock,
+    Attention,
     MemEffAttention,
+    LoRAAttention,
     LoRAMemEffAttention,
     # CrossAttentionBlock,
 )
@@ -218,7 +220,6 @@ class ViTv2Adaption(ViTv2):
         return [
             "query_mlp",
             "query_tokens",
-            "cross_attn_blocks",
             "upscale",
             "input_adapter",
         ]
@@ -228,7 +229,7 @@ class ViTv2Adaption(ViTv2):
 
 
 @register_model("vitv2_a_2d_tiny")
-def vitv2_a_2d_tiny(lora=False, **kwargs):
+def vitv2_a_2d_tiny(lora=False, mea=True, **kwargs):
     if "init_values" not in kwargs:
         kwargs["init_values"] = 0.1
     model = ViTv2Adaption(
@@ -238,7 +239,12 @@ def vitv2_a_2d_tiny(lora=False, **kwargs):
         num_heads=3,
         mlp_ratio=4,
         block_fn=partial(
-            Block, attn_class=LoRAMemEffAttention if lora else MemEffAttention
+            Block,
+            attn_class=(
+                (LoRAMemEffAttention if mea else LoRAAttention)
+                if lora
+                else (MemEffAttention if mea else Attention)
+            ),
         ),
         num_register_tokens=4,
         **kwargs,
@@ -247,7 +253,7 @@ def vitv2_a_2d_tiny(lora=False, **kwargs):
 
 
 @register_model("vitv2_a_2d_small")
-def vitv2_a_2d_small(lora=False, **kwargs):
+def vitv2_a_2d_small(lora=False, mea=True, **kwargs):
     if "init_values" not in kwargs:
         kwargs["init_values"] = 0.1
     model = ViTv2Adaption(
@@ -257,7 +263,12 @@ def vitv2_a_2d_small(lora=False, **kwargs):
         num_heads=6,
         mlp_ratio=4,
         block_fn=partial(
-            Block, attn_class=LoRAMemEffAttention if lora else MemEffAttention
+            Block,
+            attn_class=(
+                (LoRAMemEffAttention if mea else LoRAAttention)
+                if lora
+                else (MemEffAttention if mea else Attention)
+            ),
         ),
         num_register_tokens=4,
         **kwargs,
@@ -266,7 +277,7 @@ def vitv2_a_2d_small(lora=False, **kwargs):
 
 
 @register_model("vitv2_a_2d_base")
-def vitv2_a_2d_base(lora=False, **kwargs):
+def vitv2_a_2d_base(lora=False, mea=True, **kwargs):
     if "init_values" not in kwargs:
         kwargs["init_values"] = 0.1
     model = ViTv2Adaption(
@@ -276,7 +287,12 @@ def vitv2_a_2d_base(lora=False, **kwargs):
         num_heads=12,
         mlp_ratio=4,
         block_fn=partial(
-            Block, attn_class=LoRAMemEffAttention if lora else MemEffAttention
+            Block,
+            attn_class=(
+                (LoRAMemEffAttention if mea else LoRAAttention)
+                if lora
+                else (MemEffAttention if mea else Attention)
+            ),
         ),
         num_register_tokens=4,
         **kwargs,
@@ -285,7 +301,7 @@ def vitv2_a_2d_base(lora=False, **kwargs):
 
 
 @register_model("vitv2_a_2d_large")
-def vitv2_a_2d_large(lora=False, **kwargs):
+def vitv2_a_2d_large(lora=False, mea=True, **kwargs):
     if "init_values" not in kwargs:
         kwargs["init_values"] = 1e-5
     model = ViTv2Adaption(
@@ -295,7 +311,12 @@ def vitv2_a_2d_large(lora=False, **kwargs):
         num_heads=16,
         mlp_ratio=4,
         block_fn=partial(
-            Block, attn_class=LoRAMemEffAttention if lora else MemEffAttention
+            Block,
+            attn_class=(
+                (LoRAMemEffAttention if mea else LoRAAttention)
+                if lora
+                else (MemEffAttention if mea else Attention)
+            ),
         ),
         num_register_tokens=4,
         **kwargs,
