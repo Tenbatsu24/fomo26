@@ -48,6 +48,36 @@ TRAINER_CLASSES = {
 }
 
 
+# code injection
+def check_monitor_top_k(self, trainer, current=None):
+    if current is None:
+        return False
+
+    if self.save_top_k == -1:
+        return True
+
+    less_than_k_models = len(self.best_k_models) < self.save_top_k
+    if less_than_k_models:
+        return True
+
+    monitor_op = {"min": torch.le, "max": torch.ge}[
+        self.mode
+    ]  # le and ge instead of lt and gt
+    should_update_best_and_save = monitor_op(
+        current, self.best_k_models[self.kth_best_model_path]
+    )
+
+    # If using multiple devices, make sure all processes are unanimous on the decision.
+    should_update_best_and_save = trainer.strategy.reduce_boolean_decision(
+        bool(should_update_best_and_save)
+    )
+
+    return should_update_best_and_save
+
+
+ModelCheckpoint.check_monitor_top_k = check_monitor_top_k
+
+
 def get_task_from_dataset_name(dataset_name: str) -> str:
     """Infer task type from dataset name prefix."""
     prefix = dataset_name[:3].upper()

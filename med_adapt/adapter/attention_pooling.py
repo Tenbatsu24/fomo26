@@ -26,17 +26,24 @@ class AttentionPooling(nn.Module):
     """
 
     def __init__(
-        self, dim: int, num_heads: int = 8, qkv_bias: bool = True, dropout: float = 0.0
+        self,
+        num_queries: int,
+        dim: int,
+        num_heads: int = 8,
+        qkv_bias: bool = True,
+        dropout: float = 0.0,
     ):
         super().__init__()
         assert dim % num_heads == 0, "dim must be divisible by num_heads"
+        self.classes = num_queries
+
         self.dim = dim
         self.num_heads = num_heads
         self.head_dim = dim // num_heads
         self.scale = self.head_dim**-0.5
         self.dropout = dropout
 
-        self.query = nn.Parameter(torch.zeros(1, 1, dim))
+        self.query = nn.Parameter(torch.zeros(1, self.classes, dim))
         nn.init.trunc_normal_(self.query, std=0.02)
 
         self.q_proj = nn.Linear(dim, dim, bias=qkv_bias)
@@ -58,7 +65,7 @@ class AttentionPooling(nn.Module):
         B, N, D = x.shape
         x = self.norm(x)
 
-        q = self.query.expand(B, -1, -1)  # (B, 1, D)
+        q = self.query.expand(B, -1, -1)  # (B, c, D)
         q = self.q_proj(q)
         k = self.k_proj(x)
         v = self.v_proj(x)
@@ -70,12 +77,12 @@ class AttentionPooling(nn.Module):
 
         out = self.out_proj(out)
         out = self.proj_drop(out)
-        return out[:, 0]  # (B, D)
+        return out  # (B, c, D)
 
     def _attn_xformers(self, q, k, v, mask):
         B = q.shape[0]
         # xformers expects (B, N, H, hd)
-        q = q.reshape(B, 1, self.num_heads, self.head_dim)
+        q = q.reshape(B, self.classes, self.num_heads, self.head_dim)
         k = k.reshape(B, -1, self.num_heads, self.head_dim)
         v = v.reshape(B, -1, self.num_heads, self.head_dim)
 
@@ -93,11 +100,11 @@ class AttentionPooling(nn.Module):
         out = memory_efficient_attention(
             q, k, v, attn_bias=attn_bias, p=self.dropout if self.training else 0.0
         )  # (B, 1, H, hd)
-        return out.reshape(B, 1, self.dim)
+        return out.reshape(B, self.classes, self.dim)
 
     def _attn_manual(self, q, k, v, mask):
         B, N = q.shape[0], k.shape[1]
-        q = q.reshape(B, 1, self.num_heads, self.head_dim).transpose(
+        q = q.reshape(B, self.classes, self.num_heads, self.head_dim).transpose(
             1, 2
         )  # (B, H, 1, hd)
         k = k.reshape(B, N, self.num_heads, self.head_dim).transpose(
@@ -116,11 +123,11 @@ class AttentionPooling(nn.Module):
         attn = self.attn_drop(attn)
 
         out = attn @ v  # (B, H, 1, hd)
-        return out.transpose(1, 2).reshape(B, 1, self.dim)
+        return out.transpose(1, 2).reshape(B, self.classes, self.dim)
 
 
 if __name__ == "__main__":
-    pool = AttentionPooling(dim=768, num_heads=8)
+    pool = AttentionPooling(2, dim=768, num_heads=8)
     tokens = torch.randn(4, 196, 768)  # B=4, N=196 patches, D=768
     pooled = pool(tokens)  # (4, 768)
 
