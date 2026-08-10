@@ -1,17 +1,18 @@
 {
   "model": {
-    "variant": "2d",
+    "variant": "3d",
     "size": "small",
-    "lora": false
+    "lora": true,
+    "query_from": -3
   },
   "pretrained": {
     "checkpoint": "small/neco/encoder_teacher.ckpt"
   },
   "data": {
-    "dataset_name": "CLS002_FOMO26_Infarct",
+    "dataset_name": "SEG002_FOMO26_Infarct",
     "crop_size": [
-      256,
-      256,
+      196,
+      196,
       28
     ],
     "volume_patch_size": [
@@ -19,7 +20,7 @@
       14,
       14
     ],
-    "batch_size": 4,
+    "batch_size": 2,
     "num_workers": 2,
     "resample_spacing": null,
     "resize_to": [

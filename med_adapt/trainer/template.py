@@ -103,6 +103,12 @@ class TemplateTrainer(pl.LightningModule):
                 ignore_loading=self.model.do_not_load(),
             )
         else:
+            if to_ignore := self.model.do_not_load():
+                state_dict = {
+                    k: v
+                    for k, v in state_dict.items()
+                    if all(ig not in k for ig in to_ignore)
+                }
             missing, unexpected = self.model.load_state_dict(state_dict, strict=False)
 
         logger.info(
