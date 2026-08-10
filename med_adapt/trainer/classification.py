@@ -21,7 +21,8 @@ class ClassificationTrainer(TemplateTrainer):
     ):
         config["loss"] = {"type": "cross_entropy"}
         config["metrics"] = {
-            "acc": {"type": "accuracy", "num_classes": config.num_classes}
+            "acc": {"type": "accuracy", "num_classes": config.num_classes},
+            "auroc": {"type": "auroc", "num_classes": config.num_classes},
         }
         super().__init__(config, model, gpu_augmentations, normalisation)
 

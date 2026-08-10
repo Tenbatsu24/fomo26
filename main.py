@@ -37,6 +37,7 @@ from med_adapt.trainer import (
     RegressionTrainer,
     SegmentationTrainer,
 )
+from med_adapt.utils.lora import merge_all_lora
 
 logger = get_logger(__name__)
 
@@ -101,6 +102,45 @@ def build_model(config, task, n_modalities, n_classes):
             classes=n_classes,
             lora=config.model.lora,
         )
+
+
+def export_model_to_onnx(
+    model,
+    config,
+    task,
+    n_modalities,
+    run_dir: Path,
+    checkpoint_name: str = "model",
+):
+    """Export the (optionally LoRA-merged) model to ONNX.
+
+    Merges LoRA weights into the base model when ``config.model.lora`` is
+    enabled, then exports to ONNX so the final weights are baked in.
+    """
+    import torch.onnx
+
+    if config.model.lora:
+        n_merged = merge_all_lora(model)
+        logger.info("[main] Merged {n} LoRA layers before ONNX export.", n=n_merged)
+
+    crop_size = tuple(config.data.crop_size)
+    dummy_input = torch.randn(1, n_modalities, crop_size[0], crop_size[1], crop_size[2])
+
+    onnx_path = run_dir / f"{checkpoint_name}.onnx"
+    torch.onnx.export(
+        model,
+        dummy_input,
+        str(onnx_path),
+        opset_version=17,
+        input_names=["input"],
+        output_names=["output"],
+        dynamic_axes={
+            "input": {0: "batch"},
+            "output": {0: "batch"},
+        },
+    )
+    logger.info(f"[main] ONNX model saved to {onnx_path}")
+    return onnx_path
 
 
 def find_best_checkpoint(run_dir, metric, mode):
@@ -194,6 +234,11 @@ def run_test_mode(
     config["pretrained"]["checkpoint"] = None
     trainer = TRAINER_CLASSES[task](config=config, model=model)
 
+    # Export the final model to ONNX before running test.
+    export_model_to_onnx(
+        model, config, task, n_modalities, run_dir, checkpoint_name="best"
+    )
+
     run_name_test = f"{run_name}-test"
     results_path = get_results_path()
     logger_obj = CSVLogger(results_path, name=run_name_test, version=f"fold{fold}")
@@ -282,7 +327,7 @@ def main():
         num_workers=config.data.num_workers,
         train_transforms=train_cpu_transforms,
         val_transforms=val_cpu_transforms,
-        val_drop_last=(task == "segmentation"),
+        val_drop_last=False,
         resample_spacing=config.data.resample_spacing,
         resize_to=config.data.resize_to,
     )
@@ -338,6 +383,16 @@ def main():
     )
 
     pl_trainer.fit(trainer, train_dataloaders=train_dl, val_dataloaders=val_dl)
+
+    # Export the final model to ONNX before running test.
+    export_model_to_onnx(
+        model,
+        config,
+        task,
+        n_modalities,
+        Path(results_path) / run_name / f"fold{fold}",
+        checkpoint_name="final",
+    )
 
     logger.info("\n[main] Running test evaluation on fold {fold}...", fold=fold)
     pl_trainer.test(trainer, dataloaders=val_dl)

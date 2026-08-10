@@ -58,37 +58,58 @@ class SegmentationTrainer(TemplateTrainer):
         )
 
     def test_step(self, batch, batch_idx):
-        """Run test evaluation with sliding-window inference."""
-        if self.normalisation is not None:
-            batch = self.normalisation(batch)
+        """Run test evaluation.
 
-        x = batch["image"]
-        y = batch["label"]
+        Sliding-window inference is kept in this method but disabled by
+        default (see ``config.test.sliding_window``). When enabled it
+        overrides the standard ``batch_to_loss`` forward pass.
+        """
+        use_sliding_window = self.config.test.get("sliding_window", False)
 
-        ps = getattr(self.model, "patch_size", 14)
-        patch_size = ps if isinstance(ps, tuple) else (ps, ps)
-        logits = sliding_window_predict(
-            self.model,
-            x,
-            patch_size=patch_size,
-            device=x.device,
-            batch_size=self.config.test.batch_size,
-            amp=self.config.test.amp,
-        )
+        if use_sliding_window:
+            if self.normalisation is not None:
+                batch = self.normalisation(batch)
 
-        loss = self.criterion(logits, y)
+            x = batch["image"]
+            y = batch["label"]
 
+            ps = getattr(self.model, "patch_size", 14)
+            patch_size = ps if isinstance(ps, tuple) else (ps, ps)
+            logits = sliding_window_predict(
+                self.model,
+                x,
+                patch_size=patch_size,
+                device=x.device,
+                batch_size=self.config.test.batch_size,
+                amp=self.config.test.amp,
+            )
+
+            loss = self.criterion(logits, y)
+
+            loss = self.log_loss(
+                loss, prefix="test", prog_bar=True, on_epoch=True, on_step=False
+            )
+
+            if for_metrics := (logits, y):
+                pred, gt = for_metrics
+                try:
+                    self.test_metrics.update(pred, gt)
+                except Exception as e:
+                    logger.error(
+                        f"Error computing test metrics {pred.shape=}, {gt.shape=}: {e}"
+                    )
+
+            return loss
+
+        # Fall back to the same path as validation_step
+        loss, for_metrics = self.batch_to_loss(batch, train=False)
         loss = self.log_loss(
             loss, prefix="test", prog_bar=True, on_epoch=True, on_step=False
         )
-
-        if for_metrics := (logits, y):
+        if for_metrics:
             pred, gt = for_metrics
             try:
                 self.test_metrics.update(pred, gt)
             except Exception as e:
-                logger.error(
-                    f"Error computing test metrics {pred.shape=}, {gt.shape=}: {e}"
-                )
-
+                logger.error(f"Error computing test metrics: {e}")
         return loss

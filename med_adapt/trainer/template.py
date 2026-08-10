@@ -296,31 +296,16 @@ class TemplateTrainer(pl.LightningModule):
 
     def test_step(self, batch, batch_idx):
         """Run test evaluation. Override in subclass for sliding-window inference."""
-        x = batch["image"]
-        y = batch["label"]
-
-        if self.normalisation is not None:
-            x = self.normalisation(x)
-
-        logits = self.model(x)
-        if isinstance(logits, dict):
-            logits = logits.get("logits", logits)
-
-        loss = self.criterion(logits, y)
-
+        loss, for_metrics = self.batch_to_loss(batch, train=False)
         loss = self.log_loss(
             loss, prefix="test", prog_bar=True, on_epoch=True, on_step=False
         )
-
-        if for_metrics := (logits, y):
+        if for_metrics:
             pred, gt = for_metrics
             try:
                 self.test_metrics.update(pred, gt)
             except Exception as e:
-                logger.error(
-                    f"Error computing test metrics {pred.shape=}, {gt.shape=}: {e}"
-                )
-
+                logger.error(f"Error computing test metrics: {e}")
         return loss
 
     def on_test_epoch_end(self) -> None:

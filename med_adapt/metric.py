@@ -11,7 +11,7 @@ import torch.nn.functional as F
 
 from torchmetrics import Metric
 from torchmetrics.regression import MeanSquaredError
-from torchmetrics.classification import MulticlassAccuracy
+from torchmetrics.classification import MulticlassAccuracy, MulticlassAUROC
 
 
 class DiceIoUMetric(Metric):
@@ -168,6 +168,7 @@ def get_metric(name: str, **params):
     metrics = {
         "accuracy": lambda **p: MulticlassAccuracy(**p),
         "acc": lambda **p: MulticlassAccuracy(**p),
+        "auroc": lambda **p: MulticlassAUROC(**p),
         "mse": lambda **p: MeanSquaredError(squared=True, **p),
         "rmse": lambda **p: MeanSquaredError(squared=False, **p),
         "l2": lambda **p: MeanSquaredError(squared=False, **p),
