@@ -461,7 +461,7 @@ class MedicalTaskDataset(Dataset):
             target = torch.tensor(
                 float(target),
                 dtype=torch.float32,
-            )
+            ).unsqueeze(0)
 
         else:
             raise ValueError(f"Unknown task type: {self.TASK_TYPE}")
