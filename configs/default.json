@@ -2,13 +2,13 @@
   "model": {
     "variant": "2d",
     "size": "small",
-    "lora": true
+    "lora": false
   },
   "pretrained": {
     "checkpoint": "small/neco/encoder_teacher.ckpt"
   },
   "data": {
-    "dataset_name": "SEG002_FOMO26_Infarct",
+    "dataset_name": "CLS002_FOMO26_Infarct",
     "crop_size": [
       256,
       256,

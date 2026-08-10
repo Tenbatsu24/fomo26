@@ -19,7 +19,7 @@ def build_dataloaders(
     val_transforms=None,
     test_transforms=None,
     n_splits: int = 5,
-    val_drop_last: bool = True,
+    val_drop_last: bool = False,
     resample_spacing=None,
     resize_to=None,
 ) -> tuple[DataLoader, DataLoader, DataLoader]:
