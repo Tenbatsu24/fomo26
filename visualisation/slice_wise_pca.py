@@ -18,6 +18,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import matplotlib
+
 matplotlib.use("Agg")
 
 import torch
@@ -32,7 +33,13 @@ DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 
 OUTPUT_DIR = Path(__file__).resolve().parent
 DATASET_ROOT = Path(__file__).resolve().parents[1] / "data"
-CHECKPOINT = Path(__file__).resolve().parents[1] / "checkpoints" / "small" / "neco" / "encoder_teacher.ckpt"
+CHECKPOINT = (
+    Path(__file__).resolve().parents[1]
+    / "checkpoints"
+    / "small"
+    / "neco"
+    / "encoder_teacher.ckpt"
+)
 
 IMAGENET_MEAN = torch.tensor([0.485, 0.456, 0.406], device=DEVICE).view(3, 1, 1)
 IMAGENET_STD = torch.tensor([0.229, 0.224, 0.225], device=DEVICE).view(3, 1, 1)
@@ -43,6 +50,7 @@ MAX_SLICES = 9  # 3×3 grid
 # ---------------------------------------------------------------------------
 # Preprocessing
 # ---------------------------------------------------------------------------
+
 
 def preprocess_volume(volume: torch.Tensor) -> torch.Tensor:
     """Rescale each channel to [0,1] then normalise per depth slice.
@@ -133,6 +141,7 @@ def _resample_channels(volume: torch.Tensor, target_c: int) -> torch.Tensor:
 # Model helpers
 # ---------------------------------------------------------------------------
 
+
 def load_model() -> torch.nn.Module:
     """Build and load the 2-D ViT-S encoder from the checkpoint."""
     from med_adapt.models.base.vitv2 import vitv2_small
@@ -145,7 +154,9 @@ def load_model() -> torch.nn.Module:
     return model
 
 
-def get_patch_tokens(model: torch.nn.Module, slice_2d: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor, int, int]:
+def get_patch_tokens(
+    model: torch.nn.Module, slice_2d: torch.Tensor
+) -> tuple[torch.Tensor, torch.Tensor, int, int]:
     """Run a single 2-D slice through *model* and return patch + cls tokens.
 
     Parameters
@@ -177,7 +188,10 @@ def get_patch_tokens(model: torch.nn.Module, slice_2d: torch.Tensor) -> tuple[to
 # PCA → RGB conversion
 # ---------------------------------------------------------------------------
 
-def pca_to_rgb(patch_tokens: torch.Tensor, n_components: int = 3, whiten: bool = True) -> np.ndarray:
+
+def pca_to_rgb(
+    patch_tokens: torch.Tensor, n_components: int = 3, whiten: bool = True
+) -> np.ndarray:
     """Reduce patch tokens to *n_components* PCA axes and scale to [0, 1].
 
     Parameters
@@ -213,6 +227,7 @@ def pca_to_rgb(patch_tokens: torch.Tensor, n_components: int = 3, whiten: bool =
 # Cosine-similarity heatmap
 # ---------------------------------------------------------------------------
 
+
 def cls_cosine_heatmap(
     patch_tokens: torch.Tensor, cls_token: torch.Tensor
 ) -> np.ndarray:
@@ -229,6 +244,7 @@ def cls_cosine_heatmap(
 # ---------------------------------------------------------------------------
 # Main visualisation
 # ---------------------------------------------------------------------------
+
 
 def plot_volume_pca(
     dataset_name: str = "CLS002_FOMO26_Infarct",
@@ -264,7 +280,9 @@ def plot_volume_pca(
     dataset = dataset_cls(root=DATASET_ROOT, fold=None, seed=None, n_splits=5)
     sample = dataset[sample_index]
     volume = sample["image"]  # [C, H, W, D]
-    print(f"Volume shape: {volume.shape}, label: {sample['label'].item()}, subject: {sample['subject']}")
+    print(
+        f"Volume shape: {volume.shape}, label: {sample['label'].item()}, subject: {sample['subject']}"
+    )
 
     # --- Preprocess ----------------------------------------------------------
     vol = preprocess_volume(volume)  # [3, H, W, D]
@@ -305,15 +323,22 @@ def plot_volume_pca(
     cols = int(np.ceil(np.sqrt(n)))
     rows = int(np.ceil(n / cols))
 
-    fig_pca, axes_pca = plt.subplots(rows, cols, figsize=(cols * 4.5, rows * 4.5), dpi=150)
+    fig_pca, axes_pca = plt.subplots(
+        rows, cols, figsize=(cols * 4.5, rows * 4.5), dpi=150
+    )
     axes_pca = np.asarray(axes_pca).reshape(-1)
     fig_pca.suptitle(
         "ViT Patch-Token PCA (whitened) — RGB view per depth slice",
-        fontsize=13, fontweight="bold", y=0.98,
+        fontsize=13,
+        fontweight="bold",
+        y=0.98,
     )
     for i, (ax, pca_img, depth) in enumerate(zip(axes_pca, pca_images, depths)):
         ax.imshow(pca_img, vmin=0, vmax=1)
-        ax.set_title(f"depth z={depth}  ({pca_img.shape[0]}×{pca_img.shape[1]} patches)", fontsize=10)
+        ax.set_title(
+            f"depth z={depth}  ({pca_img.shape[0]}×{pca_img.shape[1]} patches)",
+            fontsize=10,
+        )
         ax.set_xticks([])
         ax.set_yticks([])
     for j in range(n, len(axes_pca)):
@@ -325,15 +350,22 @@ def plot_volume_pca(
     print(f"Saved → {pca_path}")
 
     # --- Build composite figure (cosine-sim panel) --------------------------
-    fig_cos, axes_cos = plt.subplots(rows, cols, figsize=(cols * 4.5, rows * 4.5), dpi=150)
+    fig_cos, axes_cos = plt.subplots(
+        rows, cols, figsize=(cols * 4.5, rows * 4.5), dpi=150
+    )
     axes_cos = np.asarray(axes_cos).reshape(-1)
     fig_cos.suptitle(
         "Patch-token ↔ CLS cosine similarity per depth slice",
-        fontsize=13, fontweight="bold", y=0.98,
+        fontsize=13,
+        fontweight="bold",
+        y=0.98,
     )
     for i, (ax, cos_img, depth) in enumerate(zip(axes_cos, cosine_images, depths)):
         im = ax.imshow(cos_img, cmap="coolwarm", vmin=-1, vmax=1, aspect="equal")
-        ax.set_title(f"depth z={depth}  ({cos_img.shape[0]}×{cos_img.shape[1]} patches)", fontsize=10)
+        ax.set_title(
+            f"depth z={depth}  ({cos_img.shape[0]}×{cos_img.shape[1]} patches)",
+            fontsize=10,
+        )
         ax.set_xticks([])
         ax.set_yticks([])
         plt.colorbar(im, ax=ax, shrink=0.8, label="cosine sim")

@@ -26,6 +26,7 @@ import math
 from pathlib import Path
 
 import matplotlib
+
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import matplotlib.colors as mcolors
@@ -35,7 +36,13 @@ import torch
 # ---------------------------------------------------------------------------
 # Constants
 # ---------------------------------------------------------------------------
-CHECKPOINT = Path(__file__).resolve().parents[1] / "checkpoints" / "small" / "neco" / "encoder_teacher.ckpt"
+CHECKPOINT = (
+    Path(__file__).resolve().parents[1]
+    / "checkpoints"
+    / "small"
+    / "neco"
+    / "encoder_teacher.ckpt"
+)
 OUTPUT_DIR = Path(__file__).resolve().parent
 GRID_SIZE = 37  # 518 / 14
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
@@ -50,7 +57,10 @@ PALETTE_GRAY = "gray_r"
 # Loading
 # ---------------------------------------------------------------------------
 
-def load_pos_embed(checkpoint_path: Path | str = CHECKPOINT) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+
+def load_pos_embed(
+    checkpoint_path: Path | str = CHECKPOINT,
+) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
     """Load pos_embed, cls_token and register_tokens from a ViT checkpoint.
 
     Returns
@@ -75,12 +85,15 @@ def to_grid(patch_pos: torch.Tensor, grid_size: int = GRID_SIZE) -> np.ndarray:
 # Helper statistics
 # ---------------------------------------------------------------------------
 
+
 def patch_norms(grid: np.ndarray) -> np.ndarray:
     """L2 norm of each patch embedding → [H, W]."""
     return np.linalg.norm(grid, axis=-1)
 
 
-def radial_profile(norms: np.ndarray, center: tuple[int, int] | None = None) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+def radial_profile(
+    norms: np.ndarray, center: tuple[int, int] | None = None
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """Mean norm as a function of radial distance from *center*.
 
     Returns
@@ -109,6 +122,7 @@ def radial_profile(norms: np.ndarray, center: tuple[int, int] | None = None) -> 
 def neighbor_cosine_similarity(grid: np.ndarray) -> dict[str, float]:
     """Cosine similarity between adjacent patch embeddings."""
     from torch.nn.functional import cosine_similarity
+
     t = torch.from_numpy(grid).float()
     h_sim = cosine_similarity(t[1:], t[:-1]).mean().item()
     v_sim = cosine_similarity(t[:, 1:], t[:, :-1]).mean().item()
@@ -119,11 +133,20 @@ def neighbor_cosine_similarity(grid: np.ndarray) -> dict[str, float]:
     idx2 = np.random.default_rng(43).integers(0, grid.shape[1], n)
     rnd = np.random.default_rng(44).integers(0, grid.shape[0], n)
     rnd2 = np.random.default_rng(45).integers(0, grid.shape[1], n)
-    r_sim = cosine_similarity(
-        torch.from_numpy(grid[idx1, idx2]),
-        torch.from_numpy(grid[rnd, rnd2]),
-    ).mean().item()
-    return {"horizontal": h_sim, "vertical": v_sim, "diagonal": d_sim, "random_baseline": r_sim}
+    r_sim = (
+        cosine_similarity(
+            torch.from_numpy(grid[idx1, idx2]),
+            torch.from_numpy(grid[rnd, rnd2]),
+        )
+        .mean()
+        .item()
+    )
+    return {
+        "horizontal": h_sim,
+        "vertical": v_sim,
+        "diagonal": d_sim,
+        "random_baseline": r_sim,
+    }
 
 
 def position_correlations(grid: np.ndarray) -> dict[str, float]:
@@ -132,7 +155,9 @@ def position_correlations(grid: np.ndarray) -> dict[str, float]:
     x = np.repeat(np.arange(W), H)
     y = np.tile(np.arange(H), W)
     cy, cx = H // 2, W // 2
-    dist = np.sqrt((np.arange(H)[:, None] - cy) ** 2 + (np.arange(W)[None, :] - cx) ** 2)
+    dist = np.sqrt(
+        (np.arange(H)[:, None] - cy) ** 2 + (np.arange(W)[None, :] - cx) ** 2
+    )
     dist = dist.reshape(H * W).astype(np.float64)
     flat = grid.reshape(-1, D).astype(np.float64)
     # Subtract mean per dim for stable correlation
@@ -159,6 +184,7 @@ def position_correlations(grid: np.ndarray) -> dict[str, float]:
 # Plotting helpers
 # ---------------------------------------------------------------------------
 
+
 def _fig_kw(**override) -> dict:
     """Return default figure kwargs, allowing overrides."""
     base = {"figsize": (8, 6), "dpi": 150}
@@ -173,6 +199,7 @@ def _colorbar(ax, mappable, label: str = "") -> None:
 # ---------------------------------------------------------------------------
 # Main visualisation
 # ---------------------------------------------------------------------------
+
 
 def plot_pos_embed(
     checkpoint_path: Path | str = CHECKPOINT,
@@ -204,7 +231,9 @@ def plot_pos_embed(
     fig.suptitle(
         "ViT Position Embedding Analysis  —  "
         f"{grid_size}×{grid_size} patch grid  ·  embed_dim={grid_np.shape[-1]}",
-        fontsize=14, fontweight="bold", y=0.98,
+        fontsize=14,
+        fontweight="bold",
+        y=0.98,
     )
 
     # 1) Patch embedding norms (spatial map)
@@ -217,21 +246,39 @@ def plot_pos_embed(
     # annotate centre vs edge
     h, w = norms.shape
     ax.text(
-        0.5, -0.12,
+        0.5,
+        -0.12,
         f"centre norm ≈ {norms[h//2-2:h//2+2, w//2-2:w//2+2].mean():.3f}    "
         f"edge norm ≈ {norms[:2, :].mean():.3f}",
-        transform=ax.transAxes, ha="center", fontsize=9, color="dimgray",
+        transform=ax.transAxes,
+        ha="center",
+        fontsize=9,
+        color="dimgray",
     )
 
     # 2) Radial profile
     ax = axes[0, 1]
-    ax.errorbar(radii, rad_mean, yerr=rad_std, fmt="o-", markersize=3, capsize=2, color="#2166ac")
+    ax.errorbar(
+        radii,
+        rad_mean,
+        yerr=rad_std,
+        fmt="o-",
+        markersize=3,
+        capsize=2,
+        color="#2166ac",
+    )
     ax.set_title("Radial Profile — Mean Norm vs. Distance from Centre", fontsize=11)
     ax.set_xlabel("radial distance (patches)")
     ax.set_ylabel("mean ‖eᵢ‖₂")
     ax.grid(True, alpha=0.3)
     # Add a flat reference line (overall mean)
-    ax.axhline(norms.mean(), color="red", linestyle="--", alpha=0.7, label=f"overall mean = {norms.mean():.3f}")
+    ax.axhline(
+        norms.mean(),
+        color="red",
+        linestyle="--",
+        alpha=0.7,
+        label=f"overall mean = {norms.mean():.3f}",
+    )
     ax.legend(fontsize=9)
 
     # 3) Neighbor vs. random cosine similarity
@@ -244,7 +291,13 @@ def plot_pos_embed(
     ax.set_xlabel("mean cosine similarity")
     ax.set_xlim(0, 1.0)
     for bar, v in zip(bars, values):
-        ax.text(v + 0.01, bar.get_y() + bar.get_height() / 2, f"{v:.3f}", va="center", fontsize=10)
+        ax.text(
+            v + 0.01,
+            bar.get_y() + bar.get_height() / 2,
+            f"{v:.3f}",
+            va="center",
+            fontsize=10,
+        )
     ax.axvline(0.5, color="gray", linestyle="--", alpha=0.5, label="chance (~0.5)")
     ax.legend(fontsize=9)
 
@@ -267,7 +320,13 @@ def plot_pos_embed(
 
     # 5) Position-correlation bar chart
     ax = axes[1, 1]
-    corr_labels = ["mean\n|x-cor|", "mean\n|y-cor|", "mean\n|radial|", "max\n|x-cor|", "max\n|y-cor|"]
+    corr_labels = [
+        "mean\n|x-cor|",
+        "mean\n|y-cor|",
+        "mean\n|radial|",
+        "max\n|x-cor|",
+        "max\n|y-cor|",
+    ]
     corr_vals = [
         pos_corr["x_position_mean_abs_corr"],
         pos_corr["y_position_mean_abs_corr"],
@@ -275,21 +334,39 @@ def plot_pos_embed(
         pos_corr["x_position_max_abs_corr"],
         pos_corr["y_position_max_abs_corr"],
     ]
-    bars = ax.bar(corr_labels, corr_vals, color=["#729fcf", "#729fcf", "#ef2929", "#8ae234", "#8ae234"])
+    bars = ax.bar(
+        corr_labels,
+        corr_vals,
+        color=["#729fcf", "#729fcf", "#ef2929", "#8ae234", "#8ae234"],
+    )
     ax.set_title("Embedding Dim ↔ Coordinate Correlation", fontsize=11)
     ax.set_ylabel("mean / max |Pearson r|")
     ax.set_ylim(0, 1.0)
     for bar, v in zip(bars, corr_vals):
-        ax.text(bar.get_x() + bar.get_width() / 2, bar.get_height() + 0.01, f"{v:.3f}", ha="center", fontsize=9)
+        ax.text(
+            bar.get_x() + bar.get_width() / 2,
+            bar.get_height() + 0.01,
+            f"{v:.3f}",
+            ha="center",
+            fontsize=9,
+        )
     ax.axhline(0.3, color="red", linestyle="--", alpha=0.5, label="0.3 threshold")
     ax.legend(fontsize=9)
 
     # 6)_cls and register token norms
     ax = axes[1, 2]
     cls_norm = cls_token.norm(dim=-1).item()
-    reg_norms = reg_token.norm(dim=-1).cpu().numpy() if reg_token.shape[1] > 0 else np.array([])
+    reg_norms = (
+        reg_token.norm(dim=-1).cpu().numpy() if reg_token.shape[1] > 0 else np.array([])
+    )
     patch_norm_arr = norms.flatten()
-    categories = ["cls", "register (mean)", "patch (mean)", "patch (min)", "patch (max)"]
+    categories = [
+        "cls",
+        "register (mean)",
+        "patch (mean)",
+        "patch (min)",
+        "patch (max)",
+    ]
     vals = [
         cls_norm,
         reg_norms.mean() if len(reg_norms) else 0,
@@ -302,7 +379,13 @@ def plot_pos_embed(
     ax.set_title("Token Norm Comparison", fontsize=11)
     ax.set_ylabel("L2 norm")
     for bar, v in zip(bars, vals):
-        ax.text(bar.get_x() + bar.get_width() / 2, bar.get_height() + 0.005, f"{v:.3f}", ha="center", fontsize=9)
+        ax.text(
+            bar.get_x() + bar.get_width() / 2,
+            bar.get_height() + 0.005,
+            f"{v:.3f}",
+            ha="center",
+            fontsize=9,
+        )
 
     plt.tight_layout(rect=[0, 0, 1, 0.94])
     out_path = output_dir / "pos_embed_analysis.png"
@@ -324,6 +407,7 @@ def plot_pos_embed(
 # Supplementary plots
 # ---------------------------------------------------------------------------
 
+
 def _save_dim_grid(patch_pos: torch.Tensor, grid_size: int, out: Path) -> None:
     """First 8 embedding dimensions as a 2×4 grid of heatmaps."""
     device = patch_pos.device
@@ -333,11 +417,15 @@ def _save_dim_grid(patch_pos: torch.Tensor, grid_size: int, out: Path) -> None:
     rows = math.ceil(n_dims / cols)
     fig, axes = plt.subplots(rows, cols, figsize=(14, 3 * rows), dpi=150)
     axes = np.asarray(axes).reshape(-1)
-    fig.suptitle("First 8 Embedding Dimensions — Spatial Layout", fontsize=13, fontweight="bold")
+    fig.suptitle(
+        "First 8 Embedding Dimensions — Spatial Layout", fontsize=13, fontweight="bold"
+    )
     for i in range(n_dims):
         ax = axes[i]
         im = ax.imshow(grid[:, :, i].numpy(), cmap=PALETTE_DIVERGING, aspect="equal")
-        ax.set_title(f"dim [{i}]  (μ={grid[:, :, i].mean():.4f}, σ={grid[:, :, i].std():.4f})")
+        ax.set_title(
+            f"dim [{i}]  (μ={grid[:, :, i].mean():.4f}, σ={grid[:, :, i].std():.4f})"
+        )
         ax.set_xticks([])
         ax.set_yticks([])
         plt.colorbar(im, ax=ax, shrink=0.8)
@@ -363,6 +451,7 @@ def _save_distance_heatmap(patch_pos: torch.Tensor, grid_size: int, out: Path) -
     flat = sub.reshape(-1, sub.shape[-1])
     # Cosine distance
     from torch.nn.functional import cosine_similarity
+
     t = torch.from_numpy(flat).float()
     sim = cosine_similarity(t.unsqueeze(1), t.unsqueeze(0))
     dist = 1 - sim.numpy()

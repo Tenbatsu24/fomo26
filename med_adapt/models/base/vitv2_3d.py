@@ -9,6 +9,7 @@ by repeating each 2-D slice along the new depth axis.
 from __future__ import annotations
 
 import math
+
 from typing import Tuple
 
 import torch
@@ -211,33 +212,51 @@ def build_3d_from_2d_checkpoint(ckpt_path: str) -> dict:
 
     ckpt = torch.load(ckpt_path, map_location="cpu")
 
-    # --- patch_embed: conv2d → conv3d via (a+s+o)/3 ------------------------
     w2d = ckpt["patch_embed.proj.weight"]  # [out, in, kH, kW]
     bias2d = ckpt["patch_embed.proj.bias"]
 
-    a = w2d.unsqueeze(2)  # [out, in, 1, kH, kW]
-    s = w2d.unsqueeze(3)  # [out, in, kH, 1, kW]
-    o = w2d.unsqueeze(4)  # [out, in, kH, kW, 1]
-    w3d = (a + s + o) / 3
-    # w3d = w2d.unsqueeze(-1).repeat(1, 1, 1, 1, w2d.size(2))
+    # 2D Fourier transform
+    H2 = torch.fft.fftn(w2d, dim=(-2, -1))
 
-    # --- pos_embed: 2-D grid → cubic 3-D grid ------------------------------
+    # Embed into 3D frequency space
+    Hxy = H2.unsqueeze(2)  # [out,in,1,k,k]
+    Hxz = H2.unsqueeze(3)  # [out,in,k,1,k]
+    Hyz = H2.unsqueeze(4)  # [out,in,k,k,1]
+
+    # Average responses
+    H3 = (Hxy + Hxz + Hyz) / 3.0
+
+    # Back to spatial domain
+    w3d = torch.fft.ifftn(H3, dim=(-3, -2, -1)).real
+
+    # kd = w2d.size(2)  # depth = kernel size (cubic: 14)
+    # w3d = w2d.unsqueeze(4).repeat(1, 1, 1, 1, kd) / kd  # [out, in, kd, kH, kW]
+    # a = w2d.unsqueeze(2)  # [out, in, 1, kH, kW]
+    # s = w2d.unsqueeze(3)  # [out, in, kH, 1, kW]
+    # o = w2d.unsqueeze(4)  # [out, in, kH, kW, 1]
+    # w3d = (a + s + o) / 3 / kd
+
     pos_2d = ckpt["pos_embed"]
     cls = pos_2d[:, :1, :]
     patches = pos_2d[:, 1:, :]
-    # The 2-D grid is sqrt(num_patches) × sqrt(num_patches)
     num_patches_2d = patches.shape[1]
     grid_size = int(math.sqrt(num_patches_2d))
     assert (
         grid_size * grid_size == num_patches_2d
     ), f"pos_embed patch count {num_patches_2d} is not a perfect square"
-    patches_3d = (
-        patches.view(1, grid_size, grid_size, -1)
-        .unsqueeze(3)  # [1, H, W, 1, D]
-        .repeat(1, 1, 1, grid_size, 1)  # [1, H, W, H, D]
-        .view(1, grid_size * grid_size * grid_size, -1)
-    )
-    pos_3d = torch.cat([cls, patches_3d], dim=1)
+
+    # Three orientations: depth-axis inserted at each spatial position
+    p = patches.view(1, grid_size, grid_size, -1)  # [1, H, W, C]
+    # # repeating along depth does not inflate the norm.
+    # p3 = p.unsqueeze(3).repeat(1, 1, 1, grid_size, 1)
+    a = p.unsqueeze(3)  # [1, H, W, 1, C]
+    s = p.unsqueeze(2)  # [1, H, 1, W, C]
+    o = p.unsqueeze(1)  # [1, 1, H, W, C]
+    p3 = torch.maximum(torch.maximum(a, s), o)  # broadcast to [1, H, W, D, C]
+    # # Average over the 3 orientations, then divide by grid_size so that
+    # p3 = (a + s + o) / 3.
+    p3 = p3.view(1, grid_size * grid_size * grid_size, -1)
+    pos_3d = torch.cat([cls, p3], dim=1)
 
     # --- Assemble new state dict -------------------------------------------
     ckpt_3d = {

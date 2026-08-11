@@ -17,6 +17,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import matplotlib
+
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
@@ -28,7 +29,10 @@ import torch.nn.functional as F
 # ---------------------------------------------------------------------------
 CHECKPOINT_3D = (
     Path(__file__).resolve().parents[1]
-    / "checkpoints" / "small" / "neco_3d" / "encoder_teacher.ckpt"
+    / "checkpoints"
+    / "small"
+    / "neco_3d"
+    / "encoder_teacher.ckpt"
 )
 DATASET_ROOT = Path(__file__).resolve().parents[1] / "data"
 OUTPUT_DIR = Path(__file__).resolve().parent
@@ -43,6 +47,7 @@ MAX_SLICES = 9
 # ---------------------------------------------------------------------------
 # Preprocessing (same as slice_wise_pca.py)
 # ---------------------------------------------------------------------------
+
 
 def preprocess_volume(volume: torch.Tensor) -> torch.Tensor:
     volume = volume.to(DEVICE).float()
@@ -96,10 +101,11 @@ def _resample_channels(volume: torch.Tensor, target_c: int) -> torch.Tensor:
 # Model loading
 # ---------------------------------------------------------------------------
 
+
 def load_3d_model(patch_size=14) -> torch.nn.Module:
     from med_adapt.models.base.vitv2_3d import (
         vitv2_3d_small,
-        load_3d_checkpoint_with_anisotropic_patch
+        load_3d_checkpoint_with_anisotropic_patch,
     )
 
     model = vitv2_3d_small(patch_size=patch_size).to(DEVICE).eval()
@@ -111,7 +117,9 @@ def load_3d_model(patch_size=14) -> torch.nn.Module:
             str(CHECKPOINT_3D), model
         )
     if missing:
-        print(f"Info: missing keys (expected for pos_embed with anisotropic ps): {missing}")
+        print(
+            f"Info: missing keys (expected for pos_embed with anisotropic ps): {missing}"
+        )
     if unexpected:
         print(f"Warning: unexpected keys: {unexpected}")
     return model
@@ -121,7 +129,10 @@ def load_3d_model(patch_size=14) -> torch.nn.Module:
 # PCA → RGB
 # ---------------------------------------------------------------------------
 
-def pca_to_rgb(patch_tokens: torch.Tensor, n_components: int = 3, whiten: bool = True) -> np.ndarray:
+
+def pca_to_rgb(
+    patch_tokens: torch.Tensor, n_components: int = 3, whiten: bool = True
+) -> np.ndarray:
     flat = patch_tokens.squeeze(0).cpu().float()
     mean = flat.mean(dim=0)
     centered = flat - mean
@@ -141,6 +152,7 @@ def pca_to_rgb(patch_tokens: torch.Tensor, n_components: int = 3, whiten: bool =
 # Pos-embed 3-D analysis
 # ---------------------------------------------------------------------------
 
+
 def analyse_3d_pos_embed(output_dir: Path) -> None:
     """Run the same spatial analyses on the 3-D pos_embed and save plots."""
     ckpt = torch.load(CHECKPOINT_3D, map_location="cpu")
@@ -154,6 +166,7 @@ def analyse_3d_pos_embed(output_dir: Path) -> None:
     norms = np.linalg.norm(grid, axis=-1)
 
     from torch.nn.functional import cosine_similarity
+
     t = torch.from_numpy(grid)
 
     # Neighbor similarities
@@ -168,10 +181,14 @@ def analyse_3d_pos_embed(output_dir: Path) -> None:
     idx4 = rng.integers(0, H, n)
     idx5 = rng.integers(0, H, n)
     idx6 = rng.integers(0, H, n)
-    r_sim = cosine_similarity(
-        t[idx1, idx2, idx3].reshape(n, -1),
-        t[idx4, idx5, idx6].reshape(n, -1),
-    ).mean().item()
+    r_sim = (
+        cosine_similarity(
+            t[idx1, idx2, idx3].reshape(n, -1),
+            t[idx4, idx5, idx6].reshape(n, -1),
+        )
+        .mean()
+        .item()
+    )
 
     # Position correlations
     flat = grid.reshape(-1, grid.shape[-1])
@@ -182,7 +199,9 @@ def analyse_3d_pos_embed(output_dir: Path) -> None:
     corr_stats = {}
     for name, coord in [("x", x), ("y", y), ("z", z)]:
         c = coord - coord.mean()
-        corr = np.abs(flat_c.T @ c) / (np.linalg.norm(flat_c, axis=0) * np.linalg.norm(c))
+        corr = np.abs(flat_c.T @ c) / (
+            np.linalg.norm(flat_c, axis=0) * np.linalg.norm(c)
+        )
         corr_stats[f"{name}_mean"] = float(corr.mean())
         corr_stats[f"{name}_max"] = float(corr.max())
 
@@ -204,13 +223,15 @@ def analyse_3d_pos_embed(output_dir: Path) -> None:
     fig.suptitle(
         "3-D ViT Position Embedding Analysis  —  "
         f"{H}×{H}×{H} patch grid  ·  embed_dim={grid.shape[-1]}",
-        fontsize=14, fontweight="bold", y=0.98,
+        fontsize=14,
+        fontweight="bold",
+        y=0.98,
     )
 
     # 1) Norm heatmap — central depth slice
     ax = axes[0, 0]
-    mid = H // 2
-    im = ax.imshow(norms[mid], cmap="viridis", aspect="equal")
+    mid = 0  # H // 2
+    im = ax.imshow(norms[..., mid], cmap="viridis", aspect="equal")
     ax.set_title(f"Patch Norms  (central slice z={mid})", fontsize=11)
     ax.set_xlabel("patch x")
     ax.set_ylabel("patch y")
@@ -218,12 +239,26 @@ def analyse_3d_pos_embed(output_dir: Path) -> None:
 
     # 2) Radial profile
     ax = axes[0, 1]
-    ax.errorbar(unique_r, rad_mean, yerr=rad_std, fmt="o-", markersize=3, capsize=2, color="#2166ac")
+    ax.errorbar(
+        unique_r,
+        rad_mean,
+        yerr=rad_std,
+        fmt="o-",
+        markersize=3,
+        capsize=2,
+        color="#2166ac",
+    )
     ax.set_title("Radial Profile — Mean Norm vs. Distance from Centre", fontsize=11)
     ax.set_xlabel("radial distance (patches)")
     ax.set_ylabel("mean ‖eᵢ‖₂")
     ax.grid(True, alpha=0.3)
-    ax.axhline(norms.mean(), color="red", linestyle="--", alpha=0.7, label=f"overall mean = {norms.mean():.3f}")
+    ax.axhline(
+        norms.mean(),
+        color="red",
+        linestyle="--",
+        alpha=0.7,
+        label=f"overall mean = {norms.mean():.3f}",
+    )
     ax.legend(fontsize=9)
 
     # 3) Neighbor vs. random cosine similarity
@@ -236,22 +271,37 @@ def analyse_3d_pos_embed(output_dir: Path) -> None:
     ax.set_xlabel("mean cosine similarity")
     ax.set_xlim(0, 1.0)
     for bar, v in zip(bars, values):
-        ax.text(v + 0.01, bar.get_y() + bar.get_height() / 2, f"{v:.3f}", va="center", fontsize=10)
+        ax.text(
+            v + 0.01,
+            bar.get_y() + bar.get_height() / 2,
+            f"{v:.3f}",
+            va="center",
+            fontsize=10,
+        )
     ax.axvline(0.5, color="gray", linestyle="--", alpha=0.5)
 
     # 4) Position correlation bars
     ax = axes[1, 0]
     corr_labels = ["mean\n|x|", "mean\n|y|", "mean\n|z|", "max\n|x|", "max\n|y|"]
     corr_vals = [
-        corr_stats["x_mean"], corr_stats["y_mean"], corr_stats["z_mean"],
-        corr_stats["x_max"], corr_stats["y_max"],
+        corr_stats["x_mean"],
+        corr_stats["y_mean"],
+        corr_stats["z_mean"],
+        corr_stats["x_max"],
+        corr_stats["y_max"],
     ]
     bars = ax.bar(corr_labels, corr_vals, color=["#729fcf"] * 3 + ["#8ae234"] * 2)
     ax.set_title("Embedding Dim ↔ Coordinate Correlation", fontsize=11)
     ax.set_ylabel("mean / max |Pearson r|")
     ax.set_ylim(0, 1.0)
     for bar, v in zip(bars, corr_vals):
-        ax.text(bar.get_x() + bar.get_width() / 2, bar.get_height() + 0.01, f"{v:.3f}", ha="center", fontsize=9)
+        ax.text(
+            bar.get_x() + bar.get_width() / 2,
+            bar.get_height() + 0.01,
+            f"{v:.3f}",
+            ha="center",
+            fontsize=9,
+        )
 
     # 5) First 8 embedding dimensions — central x-slice
     ax = axes[1, 1]
@@ -275,20 +325,38 @@ def analyse_3d_pos_embed(output_dir: Path) -> None:
     # Embed sub_fig into the main figure area — actually let's just skip this
     # and use the space for a 3D norm slice visualization instead
     ax.axis("off")
-    ax.text(0.5, 0.5, "See individual dim plots\nfor per-dimension layout",
-            ha="center", va="center", fontsize=10, color="dimgray")
+    ax.text(
+        0.5,
+        0.5,
+        "See individual dim plots\nfor per-dimension layout",
+        ha="center",
+        va="center",
+        fontsize=10,
+        color="dimgray",
+    )
 
     # 6) Token norm comparison
     ax = axes[1, 2]
     cls_norm = cls_tok.norm(dim=-1).item()
     patch_norms_flat = norms.flatten()
     categories = ["cls", "patch mean", "patch min", "patch max"]
-    vals = [cls_norm, patch_norms_flat.mean(), patch_norms_flat.min(), patch_norms_flat.max()]
+    vals = [
+        cls_norm,
+        patch_norms_flat.mean(),
+        patch_norms_flat.min(),
+        patch_norms_flat.max(),
+    ]
     bars = ax.bar(categories, vals, color=["#edae49", "#2166ac", "#2166ac", "#2166ac"])
     ax.set_title("Token Norm Comparison", fontsize=11)
     ax.set_ylabel("L2 norm")
     for bar, v in zip(bars, vals):
-        ax.text(bar.get_x() + bar.get_width() / 2, bar.get_height() + 0.005, f"{v:.3f}", ha="center", fontsize=9)
+        ax.text(
+            bar.get_x() + bar.get_width() / 2,
+            bar.get_height() + 0.005,
+            f"{v:.3f}",
+            ha="center",
+            fontsize=9,
+        )
 
     plt.tight_layout(rect=[0, 0, 1, 0.94])
     out_path = output_dir / "pos_embed_3d_analysis.png"
@@ -302,7 +370,9 @@ def analyse_3d_pos_embed(output_dir: Path) -> None:
     rows = int(np.ceil(n_dims / cols))
     fig, axes_d = plt.subplots(rows, cols, figsize=(cols * 3.5, rows * 3.5), dpi=150)
     axes_d = np.asarray(axes_d).reshape(-1)
-    fig.suptitle("First 8 Embedding Dimensions — 3-D Grid Slices", fontsize=13, fontweight="bold")
+    fig.suptitle(
+        "First 8 Embedding Dimensions — 3-D Grid Slices", fontsize=13, fontweight="bold"
+    )
     for i in range(n_dims):
         ax = axes_d[i]
         # Show three orthogonal slices
@@ -312,10 +382,21 @@ def analyse_3d_pos_embed(output_dir: Path) -> None:
         # Combine into a single image: [H, 3*H] with yz | xz | xy
         combined = np.hstack([slice_yz, slice_xz, slice_xy])
         im = ax.imshow(combined, cmap="coolwarm", aspect="equal")
-        ax.set_title(f"dim [{i}]  (μ={grid[:, :, :, i].mean():.4f}, σ={grid[:, :, :, i].std():.4f})", fontsize=10)
+        ax.set_title(
+            f"dim [{i}]  (μ={grid[:, :, :, i].mean():.4f}, σ={grid[:, :, :, i].std():.4f})",
+            fontsize=10,
+        )
         ax.set_xticks([])
         ax.set_yticks([])
-        ax.text(0.5, -0.08, "yz | xz | xy", transform=ax.transAxes, ha="center", fontsize=8, color="dimgray")
+        ax.text(
+            0.5,
+            -0.08,
+            "yz | xz | xy",
+            transform=ax.transAxes,
+            ha="center",
+            fontsize=8,
+            color="dimgray",
+        )
         plt.colorbar(im, ax=ax, shrink=0.8)
     for j in range(n_dims, len(axes_d)):
         axes_d[j].set_visible(False)
@@ -330,11 +411,14 @@ def analyse_3d_pos_embed(output_dir: Path) -> None:
 # Volume PCA (3-D)
 # ---------------------------------------------------------------------------
 
+
 def plot_volume_pca_3d(
     dataset_name: str = "CLS002_FOMO26_Infarct",
     output_dir: Path | str = OUTPUT_DIR,
     max_depth_slices: int = MAX_SLICES,
     sample_index: int = 0,
+    patch_size=14,
+    resize_to=(384, 512, 384),
 ) -> Path:
     """Run the 3-D volume → patch-token PCA pipeline and save figures."""
     output_dir = Path(output_dir)
@@ -343,15 +427,19 @@ def plot_volume_pca_3d(
     from med_adapt.registry import STORE
 
     dataset_cls = STORE.get("datasets", dataset_name)
-    dataset = dataset_cls(root=DATASET_ROOT, fold=None, seed=None, n_splits=5, resize_to=(384, 512, 384))
+    dataset = dataset_cls(
+        root=DATASET_ROOT, fold=None, seed=None, n_splits=5, resize_to=resize_to
+    )
     sample = dataset[sample_index]
     volume = sample["image"]
-    print(f"Volume shape: {volume.shape}, label: {sample['label'].item()}, subject: {sample['subject']}")
+    print(
+        f"Volume shape: {volume.shape}, label: {sample['label'].item()}, subject: {sample['subject']}"
+    )
 
     vol = preprocess_volume(volume)
     print(f"Preprocessed volume: {vol.shape}")
 
-    model = load_3d_model()
+    model = load_3d_model(patch_size=patch_size)
     print(f"Model loaded, patch_size={model.patch_size}")
 
     vol_tensor = vol.unsqueeze(0).to(DEVICE)  # [1, C, H, W, D]
@@ -404,11 +492,15 @@ def plot_volume_pca_3d(
     rows = int(np.ceil(n / cols))
 
     # --- PCA-RGB panel ------------------------------------------------------
-    fig_pca, axes_pca = plt.subplots(rows, cols, figsize=(cols * 4.5, rows * 4.5), dpi=150)
+    fig_pca, axes_pca = plt.subplots(
+        rows, cols, figsize=(cols * 4.5, rows * 4.5), dpi=150
+    )
     axes_pca = np.asarray(axes_pca).reshape(-1)
     fig_pca.suptitle(
         "3-D ViT: Patch-Token PCA (whitened) per patch-depth slice",
-        fontsize=13, fontweight="bold", y=0.98,
+        fontsize=13,
+        fontweight="bold",
+        y=0.98,
     )
     for i, (ax, pca_img, d_idx) in enumerate(zip(axes_pca, pca_images, slice_indices)):
         ax.imshow(pca_img, vmin=0, vmax=1)
@@ -424,13 +516,19 @@ def plot_volume_pca_3d(
     print(f"Saved → {pca_path}")
 
     # --- Cosine panel -------------------------------------------------------
-    fig_cos, axes_cos = plt.subplots(rows, cols, figsize=(cols * 4.5, rows * 4.5), dpi=150)
+    fig_cos, axes_cos = plt.subplots(
+        rows, cols, figsize=(cols * 4.5, rows * 4.5), dpi=150
+    )
     axes_cos = np.asarray(axes_cos).reshape(-1)
     fig_cos.suptitle(
         "3-D ViT: Patch-token ↔ CLS cosine similarity per patch-depth slice",
-        fontsize=13, fontweight="bold", y=0.98,
+        fontsize=13,
+        fontweight="bold",
+        y=0.98,
     )
-    for i, (ax, cos_img, d_idx) in enumerate(zip(axes_cos, cosine_images, slice_indices)):
+    for i, (ax, cos_img, d_idx) in enumerate(
+        zip(axes_cos, cosine_images, slice_indices)
+    ):
         im = ax.imshow(cos_img, cmap="coolwarm", vmin=-1, vmax=1, aspect="equal")
         ax.set_title(f"patch-depth z={d_idx}  ({ph}×{pw} patches)", fontsize=10)
         ax.set_xticks([])
@@ -453,4 +551,5 @@ def plot_volume_pca_3d(
 
 if __name__ == "__main__":
     analyse_3d_pos_embed(OUTPUT_DIR)
-    plot_volume_pca_3d()
+    plot_volume_pca_3d(patch_size=14, resize_to=(384, 512, 384))
+    # plot_volume_pca_3d(patch_size=(14, 14, 1), resize_to=None)
