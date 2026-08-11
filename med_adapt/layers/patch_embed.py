@@ -95,3 +95,48 @@ class PatchEmbed(nn.Module):
         nn.init.uniform_(self.proj.weight, -math.sqrt(k), math.sqrt(k))
         if self.proj.bias is not None:
             nn.init.uniform_(self.proj.bias, -math.sqrt(k), math.sqrt(k))
+
+
+class PatchEmbed3D(nn.Module):
+    """3-D spatial patch embedding: ``(B, C, H, W, D) → (B, N, E)``.
+
+    The convolution kernel is cubic with size ``patch_size × patch_size ×
+    patch_size`` and stride equal to the kernel size, so the output grid
+    is ``(H//ps, W//ps, D//ps)``.
+    """
+
+    def __init__(
+        self,
+        img_size: Tuple[int, int, int],
+        patch_size: int | Tuple[int, int, int],
+        in_chans: int,
+        embed_dim: int,
+    ):
+        super().__init__()
+        self.img_size = img_size
+        ps = (
+            (patch_size, patch_size, patch_size)
+            if isinstance(patch_size, int)
+            else patch_size
+        )
+        self.patch_size = ps
+        self.in_chans = in_chans
+        self.embed_dim = embed_dim
+
+        h, w, d = img_size
+        ph, pw, pd = h // ps[0], w // ps[1], d // ps[2]
+        self.patches_resolution = (ph, pw, pd)
+        self.num_patches = ph * pw * pd
+
+        self.proj = nn.Conv3d(
+            in_chans,
+            embed_dim,
+            kernel_size=ps,
+            stride=ps,
+        )
+
+    def forward(self, x: Tensor) -> Tensor:
+        x = self.proj(x)  # [B, E, ph, pw, pd]
+        x = x.flatten(2)  # [B, E, ph·pw·pd]
+        x = x.transpose(1, 2)  # [B, ph·pw·pd, E]
+        return x

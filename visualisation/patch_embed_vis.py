@@ -33,26 +33,21 @@ import matplotlib.colors as mcolors
 import numpy as np
 import torch
 
+from visualisation import _shared
+
 # ---------------------------------------------------------------------------
 # Constants
 # ---------------------------------------------------------------------------
-CHECKPOINT = (
-    Path(__file__).resolve().parents[1]
-    / "checkpoints"
-    / "small"
-    / "neco"
-    / "encoder_teacher.ckpt"
-)
-OUTPUT_DIR = Path(__file__).resolve().parent
-PATCH_SIZE = 14
-IN_CHANS = 3
-EMBED_DIM = 384
-DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
+CHECKPOINT = _shared.CHECKPOINT
+OUTPUT_DIR = _shared.OUTPUT_DIR
+PATCH_SIZE = _shared.PATCH_SIZE
+IN_CHANS = _shared.IN_CHANS
+EMBED_DIM = _shared.EMBED_DIM
+DEVICE = _shared.DEVICE
 
-PALETTE_SEQUENTIAL = "viridis"
-PALETTE_DIVERGING = "coolwarm"
-PALETTE_GRAY = "gray_r"
-
+PALETTE_SEQUENTIAL = _shared.PALETTE_SEQUENTIAL
+PALETTE_DIVERGING = _shared.PALETTE_DIVERGING
+PALETTE_GRAY = _shared.PALETTE_GRAY
 
 # ---------------------------------------------------------------------------
 # Loading
@@ -109,7 +104,6 @@ def kernel_spectral_norms(weight: np.ndarray) -> np.ndarray:
 def layer_spectral_norm(weight: np.ndarray) -> float:
     """Largest singular value of the full [embed_dim, C·ps·ps] weight matrix."""
     flat = weight.reshape(weight.shape[0], -1)
-    # Use a partial SVD for efficiency when embed_dim is large.
     s = np.linalg.svd(flat, compute_uv=False, full_matrices=False)
     return float(s[0])
 
@@ -168,7 +162,6 @@ def per_channel_norms(weight: np.ndarray) -> np.ndarray:
     across all output channels.
     """
     E, C, H, W = weight.shape
-    # Reshape to [C, E*H*W] so we can norm over the flattened spatial+output axes.
     channel_norms = np.linalg.norm(weight.transpose(1, 0, 2, 3).reshape(C, -1), axis=1)
     return channel_norms / E
 
@@ -182,11 +175,9 @@ def kernel_orientation(weight: np.ndarray) -> np.ndarray:
     E, C, H, W = weight.shape
     angles = np.zeros(E)
     for e in range(E):
-        # Stack H/W slices for each channel and compute covariance.
         k = weight[e].reshape(C, -1)  # [C, H*W]
         cov = k.T @ k / k.shape[1]  # [H*W, H*W]
         eigvals, eigvecs = np.linalg.eigh(cov)
-        # Largest eigenvector → dominant orientation.
         v = eigvecs[:, -1][:H]  # take the H-component
         angle = math.degrees(math.atan2(v.sum(), (np.abs(v) + 1e-8).sum()))
         angle = angle % 180
@@ -234,15 +225,8 @@ def neighbor_kernel_similarity(weight: np.ndarray) -> dict[str, float]:
 # Plotting helpers
 # ---------------------------------------------------------------------------
 
-
-def _fig_kw(**override) -> dict:
-    base = {"figsize": (8, 6), "dpi": 150}
-    base.update(override)
-    return base
-
-
-def _colorbar(ax, mappable, label: str = "") -> None:
-    plt.colorbar(mappable, ax=ax, label=label, shrink=0.8)
+_fig_kw = _shared._fig_kw
+_colorbar = _shared._colorbar
 
 
 def _show_kernel_grid(
@@ -765,7 +749,6 @@ def _save_bias_detail(bias: np.ndarray, out: Path) -> None:
     # Histogram with KDE-like density
     ax = axes[1, 1]
     ax.hist(bias, bins=40, density=True, color="#ef2929", edgecolor="white", alpha=0.7)
-    # Simple Gaussian KDE overlay
     from scipy.stats import gaussian_kde
 
     kde = gaussian_kde(bias)

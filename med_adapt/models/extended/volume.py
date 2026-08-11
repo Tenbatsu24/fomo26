@@ -1,5 +1,5 @@
-from typing import Literal
 from functools import partial
+from typing import Literal, Mapping, Any
 
 
 import torch
@@ -10,13 +10,13 @@ from torch import Tensor
 from einops import rearrange, einsum
 
 from med_adapt.models.base import ViTv2
-from med_adapt.adapter import PatchEmbed3D
 from med_adapt.registry import register_model
 from med_adapt.utils.config import get_logger
 from med_adapt.layers import (
     Block,
     ScaleBlock,
     Attention,
+    PatchEmbed3D,
     MemEffAttention,
     LoRAAttention,
     LoRAMemEffAttention,
@@ -41,24 +41,31 @@ class ViTv2Adaption3D(ViTv2):
         super(ViTv2Adaption3D, self).__init__(*args, **kwargs)
 
         self.task = task
-        self.query_from = (
-            len(self.blocks) + query_from if query_from < 0 else query_from
-        )
 
         self.img_size = volume_size
+        self.in_channels = med_in_channels
         self.patch_size = volume_patch_size
+
         self.patch_embed = PatchEmbed3D(
             img_size=volume_size,
             patch_size=volume_patch_size,
             in_chans=med_in_channels,
             embed_dim=self.embed_dim,
         )
+
+        # from dinov2 / neco models
+        self._pos_embed_grid_size = 37
         self.pos_embed = nn.Parameter(
             torch.zeros(
-                1, self.patch_embed.num_patches + self.num_tokens, self.embed_dim
+                1,
+                self._pos_embed_grid_size**3 + self.num_tokens,
+                self.embed_dim,
             )
         )
 
+        self.query_from = (
+            len(self.blocks) + query_from if query_from < 0 else query_from
+        )
         self.num_q_tokens = 1 if task == "classification" else classes
         self.query_tokens = nn.Parameter(
             torch.zeros(1, self.num_q_tokens, self.embed_dim), requires_grad=True
@@ -122,7 +129,7 @@ class ViTv2Adaption3D(ViTv2):
         w0 = w0 + self.interpolate_offset
         d0 = d0 + self.interpolate_offset
 
-        ph, pw, pd = self.patch_embed.patches_resolution
+        ph = pw = pd = self._pos_embed_grid_size
 
         sh = float(h0) / ph
         sw = float(w0) / pw
@@ -220,31 +227,76 @@ class ViTv2Adaption3D(ViTv2):
                 else:
                     query_logits = x[:, : self.num_q_tokens, :]  # [B, q, d]
                     if self.task == "classification":
-                        cls_pred = self.query_mlp(query_logits.squeeze(1))
+                        cls_pred = self.query_mlp(query_logits[:, 0])
                         # logger.debug(cls_pred.shape)
                         preds.append(cls_pred)
                     else:
-                        reg_pred = [
-                            self.query_mlp[f"class_{i}"](query_logits[:, i, :])
-                            for i in range(self.num_q_tokens)
-                        ]
-                        # logger.debug([reg.shape for reg in reg_pred])
+                        reg_pred = torch.stack(
+                            [
+                                self.query_mlp[f"class_{i}"](query_logits[:, i, :])[
+                                    :, 0
+                                ]
+                                for i in range(self.num_q_tokens)
+                            ],
+                            dim=-1,
+                        )
+                        # logger.debug(reg.shape)
                         preds.append(reg_pred)
 
         return preds
 
+    def load_state_dict(
+        self, state_dict: Mapping[str, Any], strict: bool = True, assign: bool = False
+    ):
+        model_ps = self.patch_size
+
+        new_state_dict = {**state_dict}
+
+        ckpt_ps = state_dict["patch_embed.proj.weight"].shape[2:]
+        if model_ps != ckpt_ps:
+            if model_ps[0] == ckpt_ps[0] and model_ps[1] == ckpt_ps[1]:
+                w_ckpt = state_dict["patch_embed.proj.weight"]
+                kd_model = model_ps[2]
+                kd_ckpt = ckpt_ps[2]
+                logger.info(f"Resampling patch_embed depth: {kd_ckpt} -> {kd_model}")
+                w_resampled = F.interpolate(
+                    w_ckpt,
+                    size=(ckpt_ps[0], ckpt_ps[1], kd_model),
+                    mode="trilinear",
+                    align_corners=False,
+                )
+                new_state_dict["patch_embed.proj.weight"] = w_resampled
+                logger.info(f"  weight: {w_ckpt.shape} -> {w_resampled.shape}")
+            else:
+                logger.error(
+                    f"Only depth patch size may differ: model={model_ps}, ckpt={ckpt_ps}"
+                )
+                new_state_dict["patch_embed.proj.weight"] = self.patch_embed.weight
+                new_state_dict["patch_embed.proj.bias"] = self.patch_embed.bias
+
+        ckpt_inch = new_state_dict["patch_embed.proj.weight"].shape[1]
+        if self.in_channels != ckpt_inch:
+            logger.info(f" in_ch: {ckpt_inch} -> {self.in_channels}")
+            new_proj = (
+                new_state_dict["patch_embed.proj.weight"]
+                .mean(dim=1, keepdim=True)
+                .repeat(1, self.in_channels, 1, 1, 1)
+            )
+            new_state_dict["patch_embed.proj.weight"] = new_proj
+
+        del state_dict
+
+        return super().load_state_dict(new_state_dict, strict=strict, assign=assign)
+
     def additional_trainable(self):
         return [
-            "patch_embed",
-            "pos_embed",
+            # "patch_embed",
+            # "pos_embed",
             "query_mlp",
             "query_tokens",
             "upscale",
             "head",
         ]
-
-    def do_not_load(self):
-        return ["pos_embed", "patch_embed"]
 
 
 @register_model("vitv2_a_3d_tiny")
@@ -376,7 +428,17 @@ def vitv2_a_3d_large(
 
 
 if __name__ == "__main__":
-    _m = vitv2_a_3d_tiny(
-        med_in_channels=1, task="segmentation", classes=2, lora=True
+    _m = vitv2_a_3d_small(
+        volume_size=(196, 196, 28),
+        volume_patch_size=(14, 14, 2),
+        med_in_channels=1,
+        task="classification",
+        classes=2,
+        lora=False,
     ).to("cuda")
+
+    _m.load_state_dict(
+        torch.load("../../../checkpoints/small/neco_3d/encoder_teacher.ckpt"),
+        strict=False,
+    )
     _m(torch.randn(1, 1, 196, 196, 28, device="cuda", dtype=torch.float32))

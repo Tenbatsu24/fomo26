@@ -176,7 +176,13 @@ def export_model_to_onnx(
     model = build_model(config, task, n_modalities, n_classes, lora=False, mea=False)
 
     # 4. Load with strict check
-    result = model.load_state_dict(ckpt, strict=True)
+    result = model.load_state_dict(
+        {
+            (k.replace("model.", "") if k.startswith("model.") else k): v
+            for k, v in ckpt.items()
+        },
+        strict=True,
+    )
     if result.missing_keys:
         logger.warning(
             "[main] Missing keys when loading {name}: {keys}",
@@ -450,7 +456,7 @@ def main():
     results_path = get_results_path()
 
     metric = (
-        "acc"
+        "auroc"
         if task == "classification"
         else "dice" if task == "segmentation" else "l2"
     )
@@ -468,12 +474,14 @@ def main():
         mode="max" if task in ["classification", "segmentation"] else "min",
         save_last=False,
         enable_version_counter=False,
+        save_weights_only=True,
     )
     last_checkpoint_callback = ModelCheckpoint(
         dirpath=log_dir,
         filename="last",
         save_last=True,
         enable_version_counter=False,
+        save_weights_only=True,
     )
 
     pl_trainer = pl.Trainer(

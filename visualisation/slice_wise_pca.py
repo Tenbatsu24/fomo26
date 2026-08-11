@@ -26,115 +26,25 @@ import numpy as np
 import matplotlib.pyplot as plt
 import torch.nn.functional as F
 
+from visualisation import _shared
+
 # ---------------------------------------------------------------------------
-# Paths & constants
+# Constants
 # ---------------------------------------------------------------------------
-DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
-
-OUTPUT_DIR = Path(__file__).resolve().parent
-DATASET_ROOT = Path(__file__).resolve().parents[1] / "data"
-CHECKPOINT = (
-    Path(__file__).resolve().parents[1]
-    / "checkpoints"
-    / "small"
-    / "neco"
-    / "encoder_teacher.ckpt"
-)
-
-IMAGENET_MEAN = torch.tensor([0.485, 0.456, 0.406], device=DEVICE).view(3, 1, 1)
-IMAGENET_STD = torch.tensor([0.229, 0.224, 0.225], device=DEVICE).view(3, 1, 1)
-
-MAX_SLICES = 9  # 3×3 grid
-
+DEVICE = _shared.DEVICE
+OUTPUT_DIR = _shared.OUTPUT_DIR
+DATASET_ROOT = _shared.DATASET_ROOT
+CHECKPOINT = _shared.CHECKPOINT
+IMAGENET_MEAN = _shared.IMAGENET_MEAN
+IMAGENET_STD = _shared.IMAGENET_STD
+MAX_SLICES = _shared.MAX_SLICES
 
 # ---------------------------------------------------------------------------
 # Preprocessing
 # ---------------------------------------------------------------------------
 
-
-def preprocess_volume(volume: torch.Tensor) -> torch.Tensor:
-    """Rescale each channel to [0,1] then normalise per depth slice.
-
-    Parameters
-    ----------
-    volume : torch.Tensor
-        Input tensor of shape [C, H, W, D].
-
-    Returns
-    -------
-    torch.Tensor
-        Normalised volume of shape [C, H, W, D] on *DEVICE*.
-    """
-    volume = volume.to(DEVICE).float()
-    C, H, W, D = volume.shape
-
-    # Duplicate or resample channels to 3
-    if C == 3:
-        vol = volume
-    elif C == 1:
-        vol = volume.expand(3, H, W, D)
-    else:
-        # Resample via linear interpolation in (H,W) for each depth slice
-        vol = torch.zeros(3, H, W, D, device=DEVICE, dtype=torch.float32)
-        for c in range(3):
-            if c < C:
-                vol[c] = volume[c]
-            else:
-                # Bilinear resample from existing channels
-                src = volume[:C].unsqueeze(0)  # [1, C, H, W] per slice loop
-                # Interpolate each depth slice
-                for d in range(D):
-                    slice_2d = src[:, :, :, d]  # [1, C, H, W]
-                    resized = F.interpolate(
-                        slice_2d, size=(H, W), mode="bilinear", align_corners=False
-                    )
-                    vol[c, :, :, d] = resized[0, c % C]
-        # Actually simpler: just repeat/interpolate the whole volume
-        vol = _resample_channels(volume, 3)
-
-    # Rescale each of the 3 channels to [0, 1]
-    vol = vol.reshape(3, H * W, D)
-    ch_min = vol.min(dim=1, keepdim=True).values
-    ch_max = vol.max(dim=1, keepdim=True).values
-    denom = ch_max - ch_min
-    denom[denom == 0] = 1.0
-    vol = (vol - ch_min) / denom
-    vol = vol.reshape(3, H, W, D)
-
-    # Normalise per depth slice using ImageNet stats
-    vol = vol.permute(0, 3, 1, 2)  # [C, D, H, W]
-    vol = vol.reshape(3 * D, H, W)
-    # Repeat ImageNet stats across depth slices: [3*D, 1, 1]
-    mean_rep = IMAGENET_MEAN.repeat(D, 1, 1)[:, 0, 0]  # [3*D]
-    std_rep = IMAGENET_STD.repeat(D, 1, 1)[:, 0, 0]  # [3*D]
-    vol = (vol - mean_rep[:, None, None]) / std_rep[:, None, None]
-    vol = vol.reshape(3, D, H, W).permute(0, 2, 3, 1)  # back to [C, H, W, D]
-
-    return vol
-
-
-def _resample_channels(volume: torch.Tensor, target_c: int) -> torch.Tensor:
-    """Bilinearly resample a [C, H, W, D] volume to *target_c* channels."""
-    C, H, W, D = volume.shape
-    out = torch.zeros(target_c, H, W, D, device=DEVICE, dtype=torch.float32)
-    src = volume.unsqueeze(0)  # [1, C, H, W, D]
-    for d in range(D):
-        slice_2d = src[0, :, :, :, d]  # [C, H, W]
-        # Treat existing channels as a multi-channel image and resample
-        if C >= target_c:
-            out[:, :, :, d] = slice_2d[:target_c]
-        else:
-            slice_ch = slice_2d.permute(1, 2, 0)  # [H, W, C]
-            slice_ch = slice_ch.unsqueeze(0)  # [1, H, W, C]
-            # Interpolate the last dim by treating it as spatial
-            resized_ch = F.interpolate(
-                slice_ch.permute(0, 3, 1, 2),  # [1, C, H, W]
-                size=(target_c, H, W),
-                mode="trilinear",
-                align_corners=False,
-            )  # [1, target_c, H, W]
-            out[:, :, :, d] = resized_ch[0]
-    return out
+preprocess_volume = _shared.preprocess_volume
+_resample_channels = _shared._resample_channels
 
 
 # ---------------------------------------------------------------------------
@@ -188,39 +98,7 @@ def get_patch_tokens(
 # PCA → RGB conversion
 # ---------------------------------------------------------------------------
 
-
-def pca_to_rgb(
-    patch_tokens: torch.Tensor, n_components: int = 3, whiten: bool = True
-) -> np.ndarray:
-    """Reduce patch tokens to *n_components* PCA axes and scale to [0, 1].
-
-    Parameters
-    ----------
-    patch_tokens : torch.Tensor  shape [1, N, D]
-    n_components : int
-    whiten : bool
-        If True, divide by the square root of each eigenvalue.
-
-    Returns
-    -------
-    np.ndarray  shape [N, n_components] with values in [0, 1]
-    """
-    flat = patch_tokens.squeeze(0).cpu().float()  # [N, D]
-    mean = flat.mean(dim=0)
-    centered = flat - mean
-    # Covariance-based PCA via SVD
-    U, S, Vt = torch.linalg.svd(centered, full_matrices=False)
-    components = U[:, :n_components] * S[:n_components]  # [N, n_components]
-    if whiten:
-        components = components / (S[:n_components] + 1e-8)
-    # Scale to [0, 1] per component
-    for c in range(n_components):
-        cmin = components[:, c].min()
-        cmax = components[:, c].max()
-        denom = cmax - cmin
-        denom = denom if denom > 0 else 1.0
-        components[:, c] = (components[:, c] - cmin) / denom
-    return components.cpu().numpy()
+pca_to_rgb = _shared.pca_to_rgb
 
 
 # ---------------------------------------------------------------------------

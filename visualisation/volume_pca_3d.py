@@ -24,77 +24,25 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 
-# ---------------------------------------------------------------------------
-# Paths & constants
-# ---------------------------------------------------------------------------
-CHECKPOINT_3D = (
-    Path(__file__).resolve().parents[1]
-    / "checkpoints"
-    / "small"
-    / "neco_3d"
-    / "encoder_teacher.ckpt"
-)
-DATASET_ROOT = Path(__file__).resolve().parents[1] / "data"
-OUTPUT_DIR = Path(__file__).resolve().parent
-DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
-
-IMAGENET_MEAN = torch.tensor([0.485, 0.456, 0.406], device=DEVICE).view(3, 1, 1)
-IMAGENET_STD = torch.tensor([0.229, 0.224, 0.225], device=DEVICE).view(3, 1, 1)
-
-MAX_SLICES = 9
-
+from visualisation import _shared
 
 # ---------------------------------------------------------------------------
-# Preprocessing (same as slice_wise_pca.py)
+# Constants
+# ---------------------------------------------------------------------------
+CHECKPOINT_3D = _shared.CHECKPOINT_3D
+DATASET_ROOT = _shared.DATASET_ROOT
+OUTPUT_DIR = _shared.OUTPUT_DIR
+DEVICE = _shared.DEVICE
+IMAGENET_MEAN = _shared.IMAGENET_MEAN
+IMAGENET_STD = _shared.IMAGENET_STD
+MAX_SLICES = _shared.MAX_SLICES
+
+# ---------------------------------------------------------------------------
+# Preprocessing
 # ---------------------------------------------------------------------------
 
-
-def preprocess_volume(volume: torch.Tensor) -> torch.Tensor:
-    volume = volume.to(DEVICE).float()
-    C, H, W, D = volume.shape
-
-    if C == 3:
-        vol = volume
-    elif C == 1:
-        vol = volume.expand(3, H, W, D)
-    else:
-        vol = _resample_channels(volume, 3)
-
-    vol = vol.reshape(3, H * W, D)
-    ch_min = vol.min(dim=1, keepdim=True).values
-    ch_max = vol.max(dim=1, keepdim=True).values
-    denom = ch_max - ch_min
-    denom[denom == 0] = 1.0
-    vol = (vol - ch_min) / denom
-    vol = vol.reshape(3, H, W, D)
-
-    vol = vol.permute(0, 3, 1, 2)  # [C, D, H, W]
-    vol = vol.reshape(3 * D, H, W)
-    mean_rep = IMAGENET_MEAN.repeat(D, 1, 1)[:, 0, 0]
-    std_rep = IMAGENET_STD.repeat(D, 1, 1)[:, 0, 0]
-    vol = (vol - mean_rep[:, None, None]) / std_rep[:, None, None]
-    vol = vol.reshape(3, D, H, W).permute(0, 2, 3, 1)
-    return vol
-
-
-def _resample_channels(volume: torch.Tensor, target_c: int) -> torch.Tensor:
-    C, H, W, D = volume.shape
-    out = torch.zeros(target_c, H, W, D, device=DEVICE, dtype=torch.float32)
-    for d in range(D):
-        slice_2d = volume[:, :, :, d]  # [C, H, W]
-        if C >= target_c:
-            out[:, :, :, d] = slice_2d[:target_c]
-        else:
-            slice_ch = slice_2d.permute(1, 2, 0)  # [H, W, C]
-            slice_ch = slice_ch.unsqueeze(0)
-            resized = F.interpolate(
-                slice_ch.permute(0, 3, 1, 2),
-                size=(target_c, H, W),
-                mode="trilinear",
-                align_corners=False,
-            )
-            out[:, :, :, d] = resized[0]
-    return out
+preprocess_volume = _shared.preprocess_volume
+_resample_channels = _shared._resample_channels
 
 
 # ---------------------------------------------------------------------------
@@ -129,23 +77,7 @@ def load_3d_model(patch_size=14) -> torch.nn.Module:
 # PCA → RGB
 # ---------------------------------------------------------------------------
 
-
-def pca_to_rgb(
-    patch_tokens: torch.Tensor, n_components: int = 3, whiten: bool = True
-) -> np.ndarray:
-    flat = patch_tokens.squeeze(0).cpu().float()
-    mean = flat.mean(dim=0)
-    centered = flat - mean
-    U, S, Vt = torch.linalg.svd(centered, full_matrices=False)
-    components = U[:, :n_components] * S[:n_components]
-    if whiten:
-        components = components / (S[:n_components] + 1e-8)
-    for c in range(n_components):
-        cmin = components[:, c].min()
-        cmax = components[:, c].max()
-        denom = cmax - cmin if (cmax - cmin) > 0 else 1.0
-        components[:, c] = (components[:, c] - cmin) / denom
-    return components.cpu().numpy()
+pca_to_rgb = _shared.pca_to_rgb
 
 
 # ---------------------------------------------------------------------------
@@ -303,27 +235,8 @@ def analyse_3d_pos_embed(output_dir: Path) -> None:
             fontsize=9,
         )
 
-    # 5) First 8 embedding dimensions — central x-slice
+    # 5) Placeholder — per-dimension plots saved separately
     ax = axes[1, 1]
-    n_dims = min(8, grid.shape[-1])
-    cols = 4
-    rows = int(np.ceil(n_dims / cols))
-    # We'll just show a few slices
-    sub_fig, sub_axes = plt.subplots(rows, cols, figsize=(cols * 2.5, rows * 2.5))
-    sub_fig.suptitle("First 8 Embedding Dims  (slice x=18)", fontsize=11)
-    for i in range(n_dims):
-        sa = sub_axes[i // cols, i % cols]
-        slice_2d = grid[18, :, :, i]
-        im = sa.imshow(slice_2d, cmap="coolwarm", aspect="equal")
-        sa.set_title(f"dim {i}", fontsize=9)
-        sa.set_xticks([])
-        sa.set_yticks([])
-        plt.colorbar(im, ax=sa, shrink=0.7)
-    for j in range(n_dims, len(sub_axes.flat)):
-        sub_axes.flat[j].set_visible(False)
-    plt.tight_layout()
-    # Embed sub_fig into the main figure area — actually let's just skip this
-    # and use the space for a 3D norm slice visualization instead
     ax.axis("off")
     ax.text(
         0.5,
@@ -375,11 +288,9 @@ def analyse_3d_pos_embed(output_dir: Path) -> None:
     )
     for i in range(n_dims):
         ax = axes_d[i]
-        # Show three orthogonal slices
         slice_yz = grid[:, 18, :, i]  # x=18
         slice_xz = grid[18, :, :, i]  # y=18
         slice_xy = grid[:, :, 18, i]  # z=18
-        # Combine into a single image: [H, 3*H] with yz | xz | xy
         combined = np.hstack([slice_yz, slice_xz, slice_xy])
         im = ax.imshow(combined, cmap="coolwarm", aspect="equal")
         ax.set_title(
@@ -448,8 +359,6 @@ def plot_volume_pca_3d(
 
     patch_tokens = out["patch_latent"]  # [1, N, E]
     cls_token = out["latent"].unsqueeze(1)  # [1, 1, E]
-    # Use the ACTUAL patch grid dimensions for this input volume,
-    # not the model's base (518×518×518) grid.
     B, _, H_in, W_in, D_in = vol_tensor.shape
     ps = model.patch_size
     if isinstance(ps, int):
@@ -470,18 +379,15 @@ def plot_volume_pca_3d(
     cosine_images: list[np.ndarray] = []
 
     for d_idx in slice_indices:
-        # Extract patches for this depth slice
         start = d_idx * ph * pw
         end = (d_idx + 1) * ph * pw
         slice_tokens = patch_tokens[:, start:end, :]  # [1, ph*pw, E]
         cls_t = cls_token  # [1, 1, E]
 
-        # PCA-RGB
         pca_rgb = pca_to_rgb(slice_tokens, n_components=3, whiten=True)
         pca_rgb = pca_rgb.reshape(ph, pw, 3)
 
-        # Cosine similarity
-        cos_sim = F.cosine_similarity(slice_tokens, cls_t, dim=-1)  # [1, ph*pw]
+        cos_sim = F.cosine_similarity(slice_tokens, cls_t, dim=-1)
         cos_sim = cos_sim.cpu().numpy().reshape(ph, pw)
 
         pca_images.append(pca_rgb)
@@ -552,4 +458,3 @@ def plot_volume_pca_3d(
 if __name__ == "__main__":
     analyse_3d_pos_embed(OUTPUT_DIR)
     plot_volume_pca_3d(patch_size=14, resize_to=(384, 512, 384))
-    # plot_volume_pca_3d(patch_size=(14, 14, 1), resize_to=None)

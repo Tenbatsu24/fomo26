@@ -22,36 +22,28 @@ so the patch grid is 37 × 37.
 
 from __future__ import annotations
 
-import math
 from pathlib import Path
 
 import matplotlib
 
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
-import matplotlib.colors as mcolors
 import numpy as np
 import torch
+
+from visualisation import _shared
 
 # ---------------------------------------------------------------------------
 # Constants
 # ---------------------------------------------------------------------------
-CHECKPOINT = (
-    Path(__file__).resolve().parents[1]
-    / "checkpoints"
-    / "small"
-    / "neco"
-    / "encoder_teacher.ckpt"
-)
-OUTPUT_DIR = Path(__file__).resolve().parent
-GRID_SIZE = 37  # 518 / 14
-DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
+CHECKPOINT = _shared.CHECKPOINT
+OUTPUT_DIR = _shared.OUTPUT_DIR
+GRID_SIZE = _shared.GRID_SIZE
+DEVICE = _shared.DEVICE
 
-# Palette choices — colourblind-friendly, perceptually uniform where possible
-PALETTE_SEQUENTIAL = "viridis"
-PALETTE_DIVERGING = "coolwarm"
-PALETTE_GRAY = "gray_r"
-
+PALETTE_SEQUENTIAL = _shared.PALETTE_SEQUENTIAL
+PALETTE_DIVERGING = _shared.PALETTE_DIVERGING
+PALETTE_GRAY = _shared.PALETTE_GRAY
 
 # ---------------------------------------------------------------------------
 # Loading
@@ -127,7 +119,6 @@ def neighbor_cosine_similarity(grid: np.ndarray) -> dict[str, float]:
     h_sim = cosine_similarity(t[1:], t[:-1]).mean().item()
     v_sim = cosine_similarity(t[:, 1:], t[:, :-1]).mean().item()
     d_sim = cosine_similarity(t[1:, 1:], t[:-1, :-1]).mean().item()
-    # Random pairs for baseline
     n = 5000
     idx1 = np.random.default_rng(42).integers(0, grid.shape[0], n)
     idx2 = np.random.default_rng(43).integers(0, grid.shape[1], n)
@@ -160,7 +151,6 @@ def position_correlations(grid: np.ndarray) -> dict[str, float]:
     )
     dist = dist.reshape(H * W).astype(np.float64)
     flat = grid.reshape(-1, D).astype(np.float64)
-    # Subtract mean per dim for stable correlation
     flat_c = flat - flat.mean(axis=0)
     x_c = x - x.mean()
     y_c = y - y.mean()
@@ -184,16 +174,8 @@ def position_correlations(grid: np.ndarray) -> dict[str, float]:
 # Plotting helpers
 # ---------------------------------------------------------------------------
 
-
-def _fig_kw(**override) -> dict:
-    """Return default figure kwargs, allowing overrides."""
-    base = {"figsize": (8, 6), "dpi": 150}
-    base.update(override)
-    return base
-
-
-def _colorbar(ax, mappable, label: str = "") -> None:
-    plt.colorbar(mappable, ax=ax, label=label, shrink=0.8)
+_fig_kw = _shared._fig_kw
+_colorbar = _shared._colorbar
 
 
 # ---------------------------------------------------------------------------
@@ -243,7 +225,6 @@ def plot_pos_embed(
     ax.set_xlabel("patch x")
     ax.set_ylabel("patch y")
     _colorbar(ax, im, label="‖eᵢ‖₂")
-    # annotate centre vs edge
     h, w = norms.shape
     ax.text(
         0.5,
@@ -271,7 +252,6 @@ def plot_pos_embed(
     ax.set_xlabel("radial distance (patches)")
     ax.set_ylabel("mean ‖eᵢ‖₂")
     ax.grid(True, alpha=0.3)
-    # Add a flat reference line (overall mean)
     ax.axhline(
         norms.mean(),
         color="red",
@@ -303,7 +283,6 @@ def plot_pos_embed(
 
     # 4) First 64 dims — PCA-like projection (first 2 PC axes of patch grid)
     ax = axes[1, 0]
-    # Flatten grid and run a quick 2-D projection via SVD for visualisation
     flat = torch.from_numpy(grid_np).float().reshape(-1, grid_np.shape[-1])
     mean = flat.mean(dim=0)
     centered = flat - mean
@@ -353,7 +332,7 @@ def plot_pos_embed(
     ax.axhline(0.3, color="red", linestyle="--", alpha=0.5, label="0.3 threshold")
     ax.legend(fontsize=9)
 
-    # 6)_cls and register token norms
+    # 6) cls and register token norms
     ax = axes[1, 2]
     cls_norm = cls_token.norm(dim=-1).item()
     reg_norms = (
@@ -394,10 +373,7 @@ def plot_pos_embed(
     print(f"Saved → {out_path}")
 
     # --- Also save individual diagnostic plots --------------------------------
-    # A: heatmaps of the first 8 embedding dimensions (spatial layout)
     _save_dim_grid(patch_pos, grid_size, output_dir)
-
-    # B: pairwise distance heatmap (corner view)
     _save_distance_heatmap(patch_pos, grid_size, output_dir)
 
     return out_path
@@ -410,11 +386,10 @@ def plot_pos_embed(
 
 def _save_dim_grid(patch_pos: torch.Tensor, grid_size: int, out: Path) -> None:
     """First 8 embedding dimensions as a 2×4 grid of heatmaps."""
-    device = patch_pos.device
     grid = patch_pos.view(grid_size, grid_size, -1).to("cpu")
     n_dims = min(8, grid.shape[-1])
     cols = 4
-    rows = math.ceil(n_dims / cols)
+    rows = int(np.ceil(n_dims / cols))
     fig, axes = plt.subplots(rows, cols, figsize=(14, 3 * rows), dpi=150)
     axes = np.asarray(axes).reshape(-1)
     fig.suptitle(
@@ -449,7 +424,6 @@ def _save_distance_heatmap(patch_pos: torch.Tensor, grid_size: int, out: Path) -
     offset = (grid_size - crop) // 2
     sub = grid[offset : offset + crop, offset : offset + crop]
     flat = sub.reshape(-1, sub.shape[-1])
-    # Cosine distance
     from torch.nn.functional import cosine_similarity
 
     t = torch.from_numpy(flat).float()
