@@ -14,6 +14,7 @@ from ml_collections import ConfigDict
 
 from med_adapt.utils import get_models_path
 from med_adapt.augs import default_disable_aug
+from med_adapt.utils.masking import generate_masks
 from med_adapt.optim import init_optims_from_config
 from med_adapt.scheduling import Schedule, Scheduler
 
@@ -59,6 +60,13 @@ class PretrainTrainer(pl.LightningModule):
             "imagenet_std",
             torch.tensor([0.229, 0.224, 0.225]).view(1, 3, 1, 1),
         )
+
+        self.mask_enabled = self.config.model.use_mask
+
+        # Mask generation hyper-parameters (safe defaults when absent)
+        mask_cfg = getattr(self.config.model, "mask", None) or {}
+        self.mask_prob = mask_cfg.get("mask_prob", 0.75)
+        self.per_sample_range = tuple(mask_cfg.get("per_sample_range", [0.05, 0.1]))
 
     def _load_pretrained(self) -> None:
         """Load a pretrained checkpoint if configured."""
@@ -147,7 +155,9 @@ class PretrainTrainer(pl.LightningModule):
 
         return outputs
 
-    def _distill_loss(self, teacher_out, student_out, recon=None, volume=None):
+    def _distill_loss(
+        self, teacher_out, student_out, recon=None, volume=None, mask=None
+    ):
         cls_total, token_total = 0.0, 0.0
         n = len(teacher_out)
 
@@ -166,7 +176,41 @@ class PretrainTrainer(pl.LightningModule):
             )
 
         if recon is not None and volume is not None:
-            huber = F.huber_loss(recon, volume)
+            if mask is not None and self.model.use_patch_decode:
+                # Upsample patch-resolution mask to image resolution via
+                # repeat_interleave, then invert so that 1 marks dropped
+                # (masked) voxels where the huber loss should be computed.
+                batch_size = volume.shape[0]
+                ph = volume.shape[2] // self.model.patch_size[0]
+                pw = volume.shape[3] // self.model.patch_size[1]
+                pd = volume.shape[4] // self.model.patch_size[2]
+                # (batch_size, 1, ph, pw, pd) → repeat → (batch_size, 1, H, W, D)
+                mask_3d = mask.view(batch_size, 1, ph, pw, pd).float()
+                mask_up = torch.repeat_interleave(
+                    mask_3d, self.model.patch_size[0], dim=2
+                )
+                mask_up = torch.repeat_interleave(
+                    mask_up, self.model.patch_size[1], dim=3
+                )
+                mask_up = torch.repeat_interleave(
+                    mask_up, self.model.patch_size[2], dim=4
+                )
+                # loss_mask == 1 on dropped (masked) regions
+                loss_mask = 1.0 - mask_up
+                masked_recon = recon * loss_mask
+                masked_volume = volume * loss_mask
+                # Per-element huber, then normalise per batch element by its
+                # own masked voxel count, sum across the batch, and average.
+                huber_per_elem = F.huber_loss(
+                    masked_recon, masked_volume, reduction="none"
+                )
+                num_masked = loss_mask.sum(dim=(1, 2, 3, 4)).clamp(min=1)
+                huber_per_elem = huber_per_elem.sum(dim=(1, 2, 3, 4)) / num_masked
+                # Average only over samples that actually had masking applied
+                n_masked_samples = (num_masked > 1).sum().clamp(min=1)
+                huber = huber_per_elem.sum() / n_masked_samples
+            else:
+                huber = F.huber_loss(recon, volume)
         else:
             huber = torch.zeros(1, device=self.device)
 
@@ -180,15 +224,44 @@ class PretrainTrainer(pl.LightningModule):
     def forward(self, x, *args, **kwargs):
         return self.model(x, *args, **kwargs)
 
+    def _generate_masks(self, batch_size: int) -> torch.Tensor:
+        """Generate 3-D masks on the current device."""
+        H, W, D = self._batch_spatial_shape()
+        ph = H // self.model.patch_size[0]
+        pw = W // self.model.patch_size[1]
+        pd = D // self.model.patch_size[2]
+        masks = generate_masks(
+            patch_resolution=(ph, pw, pd),
+            number_of_samples=batch_size,
+            mask_prob=self.mask_prob,
+            per_sample_range=self.per_sample_range,
+        )
+        return masks.to(self.device)
+
+    def _batch_spatial_shape(self) -> tuple[int, int, int]:
+        """Return (H, W, D) of the current batch — cached after first call."""
+        if not hasattr(self, "_spatial_shape"):
+            # Peek at a dummy forward to infer spatial dims from patch_embed
+            # (no actual forward needed; we read the resolved resolution).
+            # Fallback: read from patch_embed patches_resolution scaled up.
+            pr = self.model.patch_embed.patches_resolution
+            ps = self.model.patch_size
+            self._spatial_shape = (pr[0] * ps[0], pr[1] * ps[1], pr[2] * ps[2])
+        return self._spatial_shape
+
     def batch_to_loss(self, batch, train=False):
         with torch.no_grad():
             teacher_outs = self._teacher_forward(batch["image"])
 
         image = self.preprocess_batch(batch, train)
 
-        student_outs, recon = self(image, distill_from=self.distill_from)
+        mask = None
+        if self.mask_enabled and train:
+            mask = self._generate_masks(image.shape[0])
 
-        return self._distill_loss(teacher_outs, student_outs, recon, image)
+        student_outs, recon = self(image, distill_from=self.distill_from, mask=mask)
+
+        return self._distill_loss(teacher_outs, student_outs, recon, image, mask=mask)
 
     def on_fit_start(self) -> None:
         self.teacher_model.eval()

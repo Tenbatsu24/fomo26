@@ -45,6 +45,7 @@ class ViT3D(ViTv2):
         volume_patch_size,
         med_in_channels,
         use_patch_decode=True,
+        use_mask=False,
         *args,
         **kwargs,
     ):
@@ -60,10 +61,16 @@ class ViT3D(ViTv2):
             },
         )
         self.use_patch_decode = use_patch_decode
+        self.use_mask = use_mask
 
         if self.use_patch_decode:
             self.patch_decode = ScaleDecode(
                 self.patch_size, self.embed_dim, self.in_channels
+            )
+
+        if self.use_mask:
+            self.mask_token = torch.nn.Parameter(
+                torch.zeros(1, 1, self.embed_dim), requires_grad=True
             )
 
     def interpolate_pos_encoding(self, x, h, w, d):
@@ -110,7 +117,7 @@ class ViT3D(ViTv2):
             previous_dtype
         )
 
-    def prepare_tokens(self, x):
+    def prepare_tokens(self, x, mask=None):
         B, nc, h, w, d = x.shape
         x = self.patch_embed(x)
 
@@ -127,13 +134,20 @@ class ViT3D(ViTv2):
                 dim=1,
             )
 
+        if mask is not None and self.mask_token is not None:
+            # mask: (B, num_patches) — 1 = keep, 0 = drop.
+            # Apply only to patch tokens; cls token is always kept.
+            mask_full = torch.cat((torch.ones(B, 1, device=x.device), mask), dim=1)
+            mask_full = mask_full.unsqueeze(-1)  # (B, 1+np, 1)
+            x = x * mask_full + self.mask_token * (1 - mask_full)
+
         return x
 
-    def forward(self, x, distill_from=-1, **kwargs):
+    def forward(self, x, distill_from=-1, mask=None, **kwargs):
         *_, h, w, d = x.shape
         lp = tuple(l // p for l, p in zip([h, w, d], self.patch_size))
 
-        x = self.prepare_tokens(x)
+        x = self.prepare_tokens(x, mask=mask)
 
         resolved_idx = (
             self.n_blocks + distill_from if distill_from < 0 else distill_from

@@ -103,6 +103,7 @@ def build_model(config, n_modalities):
         volume_patch_size=tuple(config.model.volume_patch_size),
         med_in_channels=n_modalities,
         use_patch_decode=config.model.use_patch_decode,
+        use_mask=config.model.use_mask,
     )
 
     return teacher_model, student_model

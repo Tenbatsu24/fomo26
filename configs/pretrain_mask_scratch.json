@@ -6,8 +6,12 @@
       14,
       2
     ],
-    "use_patch_decode": false,
-    "use_mask": false
+    "use_patch_decode": true,
+    "use_mask": true,
+    "mask": {
+      "mask_prob": 0.75,
+      "per_sample_range": [0.05, 0.15]
+    }
   },
   "pretrained": {
     "checkpoint": "small/neco/encoder_teacher.ckpt"
@@ -25,7 +29,7 @@
     "resize_to": null
   },
   "distill_from": -6,
-  "enable_aug": true,
+  "enable_aug": false,
   "optimizer": {
     "type": "AdamW",
     "params": {
