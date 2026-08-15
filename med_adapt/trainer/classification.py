@@ -7,6 +7,7 @@ from typing import Optional
 import torch
 
 from ml_collections import ConfigDict
+from torchmetrics import Precision, Accuracy, Recall, F1Score, AUROC
 
 from med_adapt.trainer.template import TemplateTrainer
 
@@ -20,11 +21,24 @@ class ClassificationTrainer(TemplateTrainer):
         normalisation: Optional[torch.nn.Module] = None,
     ):
         config["loss"] = {"type": "cross_entropy"}
-        config["metrics"] = {
-            "acc": {"type": "accuracy", "num_classes": config.num_classes},
-            "auroc": {"type": "auroc", "num_classes": config.num_classes},
-        }
         super().__init__(config, model, gpu_augmentations, normalisation)
+
+    def make_metrics(self):
+        return {
+            "acc": Accuracy(task="multiclass", num_classes=self.config.num_classes),
+            "prec": Precision(
+                task="multiclass", num_classes=self.config.num_classes, average="macro"
+            ),
+            "recall": Recall(
+                task="multiclass", num_classes=self.config.num_classes, average="macro"
+            ),
+            "f1": F1Score(
+                task="multiclass", num_classes=self.config.num_classes, average="macro"
+            ),
+            "auroc": AUROC(
+                task="multiclass", num_classes=self.config.num_classes, average="macro"
+            ),
+        }
 
     def batch_to_loss(self, batch, train=False):
         image, label = self.preprocess_batch(batch, train)
@@ -44,4 +58,4 @@ class ClassificationTrainer(TemplateTrainer):
             logits = outputs
             total_loss = self.criterion(logits, label)
 
-        return total_loss, (logits, label)
+        return total_loss, (torch.softmax(logits, dim=1), label)

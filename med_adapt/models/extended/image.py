@@ -3,7 +3,6 @@ from functools import partial
 
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
 
 from einops import rearrange
 
@@ -13,12 +12,11 @@ from med_adapt.utils.config import get_logger
 from med_adapt.adapter import InputChannelAdapter
 from med_adapt.layers import (
     Block,
-    ScaleBlock,
+    ScaleDecode,
     Attention,
     MemEffAttention,
     LoRAAttention,
     LoRAMemEffAttention,
-    # CrossAttentionBlock,
 )
 
 logger = get_logger(__name__)
@@ -61,32 +59,11 @@ class ViTv2Adaption(ViTv2):
             if self.query_from < 0
             else self.query_from
         )
-        # self.num_cross_attn_blocks = self.num_blocks - self.query_from
-
-        # self.cross_attn_blocks = nn.ModuleList(
-        #     [
-        #         CrossAttentionBlock(
-        #             dim=self.embed_dim,
-        #             num_heads=self.num_heads,
-        #         )
-        #         for _ in range(self.num_cross_attn_blocks)
-        #     ]
-        # )
 
         # Task-specific heads
         if task == "segmentation":
-            self.upscale = nn.Sequential(
-                ScaleBlock(self.embed_dim, conv_type="3d"),
-                ScaleBlock(self.embed_dim // 2, conv_type="3d"),
-                # ScaleBlock(self.embed_dim // 4, conv_type="3d"),
-                # ScaleBlock(self.embed_dim // 8, conv_type="3d"),
-            )
-            self.query_mlp = nn.Sequential(
-                nn.Linear(self.embed_dim, self.embed_dim, bias=True),
-                nn.GELU(),
-                nn.Linear(self.embed_dim, self.embed_dim // 2, bias=True),
-                nn.GELU(),
-                nn.Linear(self.embed_dim // 2, self.embed_dim // 4, bias=False),
+            self.patch_decode = ScaleDecode(
+                (self.patch_size, self.patch_size, 1), self.embed_dim, classes
             )
         elif task == "classification":
             self.query_mlp = nn.Sequential(
@@ -159,15 +136,6 @@ class ViTv2Adaption(ViTv2):
                 register_and_cls = x[:, num_q : num_q + num_reg + 1, :]
                 patch_tokens = x[:, num_q + num_reg + 1 :, :]
 
-                # # Flatten patches across depth: (B*D, N, E) -> (B, D, N, E) -> (B, D*N, E)
-                # patches = patch_tokens.reshape(b, d, patch_tokens.shape[1], -1).reshape(
-                #     b, d * patch_tokens.shape[1], -1
-                # )
-                #
-                # # Cross-attention: queries attend over all slices
-                # cross_idx = i - self.query_from
-                # queries = self.cross_attn_blocks[cross_idx](queries, patches)
-
                 # Aggregate queries across depth: (B*D, Q, E) -> (B, Q, E)
                 queries = query_tokens.reshape(b, d, num_q, -1).mean(dim=1)
 
@@ -187,25 +155,11 @@ class ViTv2Adaption(ViTv2):
                     )
                     patch_latents = patch_latents.permute(0, 4, 1, 2, 3)
 
-                    patch_decode = self.upscale(patch_latents)
+                    patch_decode = self.patch_decode(patch_latents)
 
-                    query_logits = self.query_mlp(queries)
-                    seg_pred = torch.einsum(
-                        "b c d h w, b q c -> b q d h w",
-                        patch_decode,
-                        query_logits,
-                    )
-
-                    upscaled = F.interpolate(
-                        seg_pred,
-                        size=(h, w, d),
-                        mode="trilinear",
-                        align_corners=False,
-                    )
-                    preds.append(upscaled)
-
+                    preds.append(patch_decode)
                 elif self.task == "classification":
-                    cls_pred = self.query_mlp(queries.squeeze(1))
+                    cls_pred = self.query_mlp(queries[:, 0])
                     preds.append(cls_pred)
                 else:  # regression
                     reg_pred = [
@@ -220,7 +174,7 @@ class ViTv2Adaption(ViTv2):
         return [
             "query_mlp",
             "query_tokens",
-            "upscale",
+            "patch_decode",
             "input_adapter",
         ]
 

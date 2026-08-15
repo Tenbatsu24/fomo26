@@ -54,7 +54,7 @@ _resample_channels = _shared._resample_channels
 
 def load_model() -> torch.nn.Module:
     """Build and load the 2-D ViT-S encoder from the checkpoint."""
-    from med_adapt.models.base.vitv2 import vitv2_small
+    from med_adapt.models.base.vit2d import vitv2_small
 
     model = vitv2_small(img_size=518, patch_size=14)
     ckpt = torch.load(CHECKPOINT, map_location="cpu")

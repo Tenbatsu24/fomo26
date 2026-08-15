@@ -3,15 +3,14 @@ from .block import Block  # noqa: F401
 from .rms_norm import RMSNorm
 from .drop_path import DropPath
 from .layer_scale import LayerScale
+from .scale_block import ScaleDecode
 from .patch_embed import PatchEmbed, PatchEmbed3D
-from .scale_block import ScaleBlock
 from .swiglu_ffn import SwiGLUFFN, SwiGLUFFNFused
 from .attention import (
     Attention,
     MemEffAttention,
     LoRAAttention,
     LoRAMemEffAttention,
-    CrossAttentionBlock,
 )
 
 __all__ = [
@@ -24,10 +23,9 @@ __all__ = [
     "LayerScale",
     "SwiGLUFFN",
     "SwiGLUFFNFused",
-    "ScaleBlock",
+    "ScaleDecode",
     "Attention",
     "MemEffAttention",
     "LoRAAttention",
     "LoRAMemEffAttention",
-    "CrossAttentionBlock",
 ]

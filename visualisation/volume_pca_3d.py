@@ -51,7 +51,7 @@ _resample_channels = _shared._resample_channels
 
 
 def load_3d_model(patch_size=14) -> torch.nn.Module:
-    from med_adapt.models.base.vitv2_3d import (
+    from med_adapt.models.base.vit3d import (
         vitv2_3d_small,
         load_3d_checkpoint_with_anisotropic_patch,
     )

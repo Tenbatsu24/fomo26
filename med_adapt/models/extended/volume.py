@@ -6,15 +6,14 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from torch import Tensor
-from einops import rearrange, einsum
+from einops import rearrange
 
 from med_adapt.models.base import ViTv2
 from med_adapt.registry import register_model
 from med_adapt.utils.config import get_logger
 from med_adapt.layers import (
     Block,
-    ScaleBlock,
+    ScaleDecode,
     Attention,
     PatchEmbed3D,
     MemEffAttention,
@@ -53,7 +52,6 @@ class ViTv2Adaption3D(ViTv2):
             embed_dim=self.embed_dim,
         )
 
-        # from dinov2 / neco models
         self._pos_embed_grid_size = 37
         self.pos_embed = nn.Parameter(
             torch.zeros(
@@ -73,19 +71,7 @@ class ViTv2Adaption3D(ViTv2):
         nn.init.normal_(self.query_tokens, std=1e-6)
 
         if task == "segmentation":
-            self.upscale = nn.Sequential(
-                ScaleBlock(self.embed_dim, conv_type="3d"),
-                ScaleBlock(self.embed_dim // 2, conv_type="3d"),
-                # ScaleBlock(self.embed_dim // 4, conv_type="3d"),
-                # ScaleBlock(self.embed_dim // 8, conv_type="3d"),
-            )
-            self.query_mlp = nn.Sequential(
-                nn.Linear(self.embed_dim, self.embed_dim, bias=True),
-                nn.GELU(),
-                nn.Linear(self.embed_dim, self.embed_dim // 2, bias=True),
-                nn.GELU(),
-                nn.Linear(self.embed_dim // 2, self.embed_dim // 4, bias=False),
-            )
+            self.patch_decode = ScaleDecode(self.patch_size, self.embed_dim, classes)
         elif task == "classification":
             self.query_mlp = nn.Sequential(
                 nn.Linear(self.embed_dim, self.embed_dim // 2, bias=True),
@@ -175,17 +161,6 @@ class ViTv2Adaption3D(ViTv2):
 
         return x
 
-    def _mask_logits(self, patch_tokens, h, w, d) -> Tensor:
-        psh, psw, psd = self.patch_size
-        hp, wp, dp = h // psh, w // psw, d // psd
-
-        spatial = rearrange(
-            patch_tokens, "b (hp wp dp) c -> b c hp wp dp", hp=hp, wp=wp, dp=dp
-        )
-
-        upscaled = self.upscale(spatial)
-        return upscaled
-
     def forward(self, x, **kwargs):
         b, c, h, w, d = x.shape
 
@@ -203,32 +178,24 @@ class ViTv2Adaption3D(ViTv2):
             x = blk(x, attn_bias=attn_bias)
             if i >= self.query_from:
                 if self.task == "segmentation":
-                    mask_logits = self._mask_logits(
-                        x[:, self.num_q_tokens + self.num_register_tokens + 1 :, :],
-                        h,
-                        w,
-                        d,
-                    )  # [B, d, ...]
-                    query_logits = self.query_mlp(
-                        x[:, : self.num_q_tokens, :]
-                    )  # [B, q, d]
-                    segmentation_pred = einsum(
-                        mask_logits, query_logits, "b d ..., b q d -> b q ..."
+                    patch_tokens = x[
+                        :, self.num_q_tokens + self.num_register_tokens + 1 :, :
+                    ]
+                    psh, psw, psd = self.patch_size
+                    hp, wp, dp = h // psh, w // psw, d // psd
+
+                    spatial = rearrange(
+                        patch_tokens,
+                        "b (hp wp dp) c -> b c hp wp dp",
+                        hp=hp,
+                        wp=wp,
+                        dp=dp,
                     )
-                    # logger.debug(segmentation_pred.shape)
-                    preds.append(
-                        F.interpolate(
-                            segmentation_pred,
-                            size=(h, w, d),
-                            mode="trilinear",
-                            align_corners=False,
-                        )
-                    )
+                    preds.append(self.patch_decode(spatial))
                 else:
                     query_logits = x[:, : self.num_q_tokens, :]  # [B, q, d]
                     if self.task == "classification":
                         cls_pred = self.query_mlp(query_logits[:, 0])
-                        # logger.debug(cls_pred.shape)
                         preds.append(cls_pred)
                     else:
                         reg_pred = torch.stack(
@@ -240,9 +207,7 @@ class ViTv2Adaption3D(ViTv2):
                             ],
                             dim=-1,
                         )
-                        # logger.debug(reg.shape)
                         preds.append(reg_pred)
-
         return preds
 
     def load_state_dict(
@@ -290,11 +255,11 @@ class ViTv2Adaption3D(ViTv2):
 
     def additional_trainable(self):
         return [
-            # "patch_embed",
+            "patch_embed",
             # "pos_embed",
             "query_mlp",
             "query_tokens",
-            "upscale",
+            "patch_decode",
             "head",
         ]
 
@@ -432,7 +397,7 @@ if __name__ == "__main__":
         volume_size=(196, 196, 28),
         volume_patch_size=(14, 14, 2),
         med_in_channels=1,
-        task="classification",
+        task="segmentation",
         classes=2,
         lora=False,
     ).to("cuda")
@@ -441,4 +406,11 @@ if __name__ == "__main__":
         torch.load("../../../checkpoints/small/neco_3d/encoder_teacher.ckpt"),
         strict=False,
     )
-    _m(torch.randn(1, 1, 196, 196, 28, device="cuda", dtype=torch.float32))
+    print(
+        [
+            _out.shape
+            for _out in _m(
+                torch.randn(1, 1, 196, 196, 28, device="cuda", dtype=torch.float32)
+            )
+        ]
+    )

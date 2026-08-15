@@ -6,11 +6,12 @@
 import math
 
 from functools import partial
-from typing import Sequence, Tuple, Union, Callable
+from typing import Sequence, Tuple, Union, Callable, Any
 
 import torch
 import torch.nn as nn
 import torch.utils.checkpoint
+from torch.nn import Parameter, Module
 
 from torch.nn.init import trunc_normal_
 from torch.nn.functional import interpolate
@@ -109,30 +110,24 @@ class ViTv2(nn.Module):
         """
         super().__init__()
         norm_layer = partial(nn.LayerNorm, eps=1e-6)
-        self.img_size = img_size
 
+        self.img_size = img_size
+        self.in_channels = in_chans
+        self.patch_size = patch_size
         self.num_features = self.embed_dim = embed_dim
 
         self.num_tokens = 1
         self.n_blocks = depth
         self.num_heads = num_heads
-        self.patch_size = patch_size
         self.num_register_tokens = num_register_tokens
-        self.interpolate_antialias = interpolate_antialias
+
         self.interpolate_offset = interpolate_offset
+        self.interpolate_antialias = interpolate_antialias
 
-        self.patch_embed = embed_layer(
-            img_size=img_size,
-            patch_size=patch_size,
-            in_chans=in_chans,
-            embed_dim=embed_dim,
-        )
-        num_patches = self.patch_embed.num_patches
-
+        self.patch_embed = self.intialise_patch_embed(embed_layer)
         self.cls_token = nn.Parameter(torch.zeros(1, 1, embed_dim))
-        self.pos_embed = nn.Parameter(
-            torch.zeros(1, num_patches + self.num_tokens, embed_dim)
-        )
+        self.pos_embed = self.intialise_pos_embed()
+
         assert num_register_tokens >= 0
         self.register_tokens = (
             nn.Parameter(torch.zeros(1, num_register_tokens, embed_dim))
@@ -198,6 +193,23 @@ class ViTv2(nn.Module):
 
         # Initialize the model's weights
         self.init_weights()
+
+    def intialise_patch_embed(self, embed_layer) -> Any:
+        patch_embed = embed_layer(
+            img_size=self.img_size,
+            patch_size=self.patch_size,
+            in_chans=self.in_channels,
+            embed_dim=self.embed_dim,
+        )
+        return patch_embed
+
+    def intialise_pos_embed(self) -> Parameter:
+        pos_embed = nn.Parameter(
+            torch.zeros(
+                1, self.patch_embed.num_patches + self.num_tokens, self.embed_dim
+            )
+        )
+        return pos_embed
 
     def init_weights(self):
         trunc_normal_(self.pos_embed, std=0.02)
