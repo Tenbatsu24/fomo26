@@ -207,7 +207,7 @@ def generate_masks(
         dtype=np.bool_,
     )
 
-    masks = torch.from_numpy(masks.astype(np.uint8))
+    masks = torch.from_numpy(masks)
 
     masks = masks.flatten(1)
 
@@ -277,17 +277,16 @@ def main():
 
     masks = generate_masks(
         (h, w, d),
-        number_of_samples=4,
+        number_of_samples=8,
         mask_prob=0.75,
-        per_sample_range=(0.05, 0.1),
+        per_sample_range=(0.05, 0.15),
     )
 
     for mask in masks:
 
         mask = mask.reshape(h, w, d).numpy()
 
-        print(f"keep ratio = {mask.mean():.4f}")
-        print(f"drop ratio = {(mask == 0).mean():.4f}")
+        print(f"keep ratio = {mask.mean():.4f}, drop ratio = {(mask == 0).mean():.4f}")
 
         visualize_volume_mask(mask)
 

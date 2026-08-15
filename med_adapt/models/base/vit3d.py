@@ -45,7 +45,7 @@ class ViT3D(ViTv2):
         volume_patch_size,
         med_in_channels,
         use_patch_decode=True,
-        use_mask=False,
+        use_mask=True,
         *args,
         **kwargs,
     ):
@@ -121,6 +121,9 @@ class ViT3D(ViTv2):
         B, nc, h, w, d = x.shape
         x = self.patch_embed(x)
 
+        if mask is not None and self.mask_token is not None:
+            x = torch.where(mask.unsqueeze(-1), self.mask_token.to(x.dtype), x)
+
         x = torch.cat((self.cls_token.expand(x.shape[0], -1, -1), x), dim=1)
         x = x + self.interpolate_pos_encoding(x, h, w, d)
 
@@ -133,13 +136,6 @@ class ViT3D(ViTv2):
                 ),
                 dim=1,
             )
-
-        if mask is not None and self.mask_token is not None:
-            # mask: (B, num_patches) — 1 = keep, 0 = drop.
-            # Apply only to patch tokens; cls token is always kept.
-            mask_full = torch.cat((torch.ones(B, 1, device=x.device), mask), dim=1)
-            mask_full = mask_full.unsqueeze(-1)  # (B, 1+np, 1)
-            x = x * mask_full + self.mask_token * (1 - mask_full)
 
         return x
 
@@ -284,19 +280,20 @@ def vitv2_3d_large(
 
 
 if __name__ == "__main__":
-    import thop
+    # import thop
 
     model = vitv2_3d_small(
         volume_size=(196, 196, 28), volume_patch_size=(14, 14, 2), med_in_channels=3
     ).cuda()
 
-    vol = torch.randn(1, 3, 196, 196, 28).cuda()
+    vol = torch.randn(1, 3, 196, 196, 28, device="cuda")
+    mask = torch.rand(1, 14, 14, 14, device="cuda").flatten(1) > 0.5
     # macs, params = thop.profile(model, (vol,))
     # print("Model FLOPs & Params:")
     # print("\t".join(thop.clever_format([macs, params], "%.3f")))
 
     with torch.no_grad():
-        out, recon = model(vol, distill_from=-2)
+        out, recon = model(vol, distill_from=-2, mask=mask)
 
     for layer_out in out:
         print([cls_patch.shape for cls_patch in layer_out])

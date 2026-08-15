@@ -162,64 +162,55 @@ class PretrainTrainer(pl.LightningModule):
         n = len(teacher_out)
 
         for (t_c, t_p), (s_c, s_p, *_) in zip(teacher_out, student_out):
-            s_interp = F.interpolate(
-                s_p,
-                size=(t_p.shape[2], t_p.shape[3], t_p.shape[4]),
+            t_interp = F.interpolate(
+                t_p,
+                size=(s_p.shape[2], s_p.shape[3], s_p.shape[4]),
                 mode="trilinear",
                 align_corners=False,
             )
             cls_total += -torch.cosine_similarity(t_c, s_c, dim=1).mean()
             token_total += (
-                -torch.cosine_similarity(t_p, s_interp, dim=1)
+                -torch.cosine_similarity(t_interp, s_p, dim=1)
                 .mean(dim=(1, 2, 3))
                 .mean()
             )
 
-        if recon is not None and volume is not None:
-            if mask is not None and self.model.use_patch_decode:
-                # Upsample patch-resolution mask to image resolution via
-                # repeat_interleave, then invert so that 1 marks dropped
-                # (masked) voxels where the huber loss should be computed.
-                batch_size = volume.shape[0]
-                ph = volume.shape[2] // self.model.patch_size[0]
-                pw = volume.shape[3] // self.model.patch_size[1]
-                pd = volume.shape[4] // self.model.patch_size[2]
-                # (batch_size, 1, ph, pw, pd) → repeat → (batch_size, 1, H, W, D)
-                mask_3d = mask.view(batch_size, 1, ph, pw, pd).float()
-                mask_up = torch.repeat_interleave(
-                    mask_3d, self.model.patch_size[0], dim=2
-                )
-                mask_up = torch.repeat_interleave(
-                    mask_up, self.model.patch_size[1], dim=3
-                )
-                mask_up = torch.repeat_interleave(
-                    mask_up, self.model.patch_size[2], dim=4
-                )
-                # loss_mask == 1 on dropped (masked) regions
-                loss_mask = 1.0 - mask_up
-                masked_recon = recon * loss_mask
-                masked_volume = volume * loss_mask
-                # Per-element huber, then normalise per batch element by its
-                # own masked voxel count, sum across the batch, and average.
-                huber_per_elem = F.huber_loss(
-                    masked_recon, masked_volume, reduction="none"
-                )
-                num_masked = loss_mask.sum(dim=(1, 2, 3, 4)).clamp(min=1)
-                huber_per_elem = huber_per_elem.sum(dim=(1, 2, 3, 4)) / num_masked
-                # Average only over samples that actually had masking applied
-                n_masked_samples = (num_masked > 1).sum().clamp(min=1)
-                huber = huber_per_elem.sum() / n_masked_samples
-            else:
-                huber = F.huber_loss(recon, volume)
-        else:
-            huber = torch.zeros(1, device=self.device)
-
-        return {
-            "loss": (2 - 2 * ((0.2 * cls_total + 0.8 * token_total) / n)) + huber,
+        loss_dict = {
+            "loss": (2 - 2 * ((0.2 * cls_total + 0.8 * token_total) / n)),
             "cls_cos": 2 - 2 * (cls_total / n),
             "token_cos": 2 - 2 * (token_total / n),
-            "huber": huber,
         }
+
+        if recon is not None and mask is not None:
+            # Upsample patch-resolution mask to image resolution via
+            # repeat_interleave, then invert so that 1 marks dropped
+            # (masked) voxels where the huber loss should be computed.
+            batch_size = volume.shape[0]
+            ph = volume.shape[2] // self.model.patch_size[0]
+            pw = volume.shape[3] // self.model.patch_size[1]
+            pd = volume.shape[4] // self.model.patch_size[2]
+            # (batch_size, 1, ph, pw, pd) → repeat → (batch_size, 1, H, W, D)
+            mask_3d = mask.view(batch_size, 1, ph, pw, pd).float()
+            mask_up = torch.repeat_interleave(mask_3d, self.model.patch_size[0], dim=2)
+            mask_up = torch.repeat_interleave(mask_up, self.model.patch_size[1], dim=3)
+            mask_up = torch.repeat_interleave(mask_up, self.model.patch_size[2], dim=4)
+            # loss_mask == 1 on dropped (masked) regions
+            loss_mask = 1.0 - mask_up
+            masked_recon = recon * loss_mask
+            masked_volume = volume * loss_mask
+            # Per-element huber, then normalise per batch element by its
+            # own masked voxel count, sum across the batch, and average.
+            huber_per_elem = F.huber_loss(masked_recon, masked_volume, reduction="none")
+            num_masked = loss_mask.sum(dim=(1, 2, 3, 4)).clamp(min=1)
+            huber_per_elem = huber_per_elem.sum(dim=(1, 2, 3, 4)) / num_masked
+            # Average only over samples that actually had masking applied
+            n_masked_samples = (num_masked > 1).sum().clamp(min=1)
+            huber = huber_per_elem.sum() / n_masked_samples
+
+            loss_dict["loss"] += huber
+            loss_dict["huber"] = huber
+
+        return loss_dict
 
     def forward(self, x, *args, **kwargs):
         return self.model(x, *args, **kwargs)
