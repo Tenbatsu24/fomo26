@@ -273,20 +273,31 @@ class ViTv2(nn.Module):
 
         return x
 
-    def forward(self, x, **kwargs):
+    def forward(self, x, distill_from=-1, **kwargs):
+        *_, h, w = x.shape
+        h_p, w_p = h // self.patch_size, w // self.patch_size
+
         x = self.prepare_tokens(x)
 
+        resolved_idx = (
+            self.n_blocks + distill_from if distill_from < 0 else distill_from
+        )
+
+        outs = []
         for i, blk in enumerate(self.blocks):
             x = blk(x)
 
-        cls_tokens = self.norm(x[:, : self.num_register_tokens + 1])
-        patch_tokens = self.norm(x[:, self.num_register_tokens + 1 :])
+            if i >= resolved_idx:
+                cls_token = self.norm(x[:, : self.num_register_tokens + 1])[:, 0]
+                patch_tokens = (
+                    self.norm(x[:, self.num_register_tokens + 1 :])
+                    .unflatten(1, (h_p, w_p))
+                    .permute(0, -1, 1, 2)
+                )
 
-        return {
-            "latent": cls_tokens[:, 0],
-            "patch_latent": patch_tokens,
-            "raw_latent": x[:, 0],
-        }
+                outs.append((cls_token, patch_tokens))
+
+        return outs
 
     def additional_trainable(self):
         return None

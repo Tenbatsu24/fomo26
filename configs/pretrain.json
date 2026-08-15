@@ -1,0 +1,66 @@
+{
+  "model": {
+    "size": "small",
+    "volume_patch_size": [
+      14,
+      14,
+      2
+    ],
+    "use_patch_decode": false
+  },
+  "pretrained": {
+    "checkpoint": "small/neco/encoder_teacher.ckpt"
+  },
+  "data": {
+    "dataset_name": "CLS002_FOMO26_Infarct",
+    "crop_size": [
+      196,
+      196,
+      28
+    ],
+    "batch_size": 2,
+    "num_workers": 2,
+    "resample_spacing": "median",
+    "resize_to": null
+  },
+  "distill_from": -6,
+  "enable_aug": true,
+  "optimizer": {
+    "type": "AdamW",
+    "params": {
+      "lr": 0.002,
+      "weight_decay": 0.05,
+      "patch_embed_lr_mult": 0.2,
+      "layerwise_decay": 0.9
+    }
+  },
+  "trainer": {
+    "accelerator": "auto",
+    "accumulate_grad_batches": 1,
+    "benchmark": false,
+    "deterministic": false,
+    "devices": "auto",
+    "gradient_clip_algorithm": "norm",
+    "gradient_clip_val": 3.0,
+    "limit_val_batches": 1.0,
+    "max_epochs": 10,
+    "num_nodes": 1,
+    "num_sanity_val_steps": 0,
+    "precision": "32-true",
+    "strategy": "auto",
+    "sync_batchnorm": false,
+    "check_val_every_n_epoch": 5
+  },
+  "scheduler": [
+    [
+      "lr",
+      "CatSched(LinSched(2e-5, 2e-3), CosSched(2e-3, 2e-6), 5)"
+    ],
+    [
+      "weight_decay",
+      "CosSched(0.04, 0.05)"
+    ]
+  ],
+  "metrics": null,
+  "seed": 42
+}

@@ -15,7 +15,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from med_adapt.layers import PatchEmbed3D
+from med_adapt.layers import PatchEmbed3D, ScaleDecode
 from med_adapt.registry import register_model
 from med_adapt.layers import Block, MemEffAttention
 from med_adapt.models.base.vit2d import ViTv2, init_weights_vit
@@ -40,7 +40,13 @@ class ViT3D(ViTv2):
     """3-D ViT that processes volumes ``(B, C, H, W, D)`` directly."""
 
     def __init__(
-        self, volume_size, volume_patch_size, med_in_channels, *args, **kwargs
+        self,
+        volume_size,
+        volume_patch_size,
+        med_in_channels,
+        use_patch_decode=True,
+        *args,
+        **kwargs,
     ):
 
         super().__init__(
@@ -53,6 +59,12 @@ class ViT3D(ViTv2):
                 "embed_layer": PatchEmbed3D,
             },
         )
+        self.use_patch_decode = use_patch_decode
+
+        if self.use_patch_decode:
+            self.patch_decode = ScaleDecode(
+                self.patch_size, self.embed_dim, self.in_channels
+            )
 
     def interpolate_pos_encoding(self, x, h, w, d):
         previous_dtype = x.dtype
@@ -117,20 +129,34 @@ class ViT3D(ViTv2):
 
         return x
 
-    def forward(self, x: torch.Tensor, **kwargs):
+    def forward(self, x, distill_from=-1, **kwargs):
         *_, h, w, d = x.shape
         lp = tuple(l // p for l, p in zip([h, w, d], self.patch_size))
 
         x = self.prepare_tokens(x)
-        for blk in self.blocks:
+
+        resolved_idx = (
+            self.n_blocks + distill_from if distill_from < 0 else distill_from
+        )
+
+        outs = []
+        for i, blk in enumerate(self.blocks):
             x = blk(x)
-        cls_tokens = self.norm(x[:, : self.num_register_tokens + 1])
-        patch_tokens = self.norm(x[:, self.num_register_tokens + 1 :])
-        return {
-            "latent": cls_tokens[:, 0],
-            "patch_latent": patch_tokens.unflatten(1, lp).permute(0, -1, 1, 2, 3),
-            "raw_latent": x[:, 0],
-        }
+
+            if i >= resolved_idx:
+                cls_token = self.norm(x[:, : self.num_register_tokens + 1])[:, 0]
+                patch_tokens = (
+                    self.norm(x[:, self.num_register_tokens + 1 :])
+                    .unflatten(1, lp)
+                    .permute(0, -1, 1, 2, 3)
+                )
+
+                outs.append((cls_token, patch_tokens))
+
+        if self.use_patch_decode:
+            return outs, self.patch_decode(outs[-1][-1])
+
+        return outs, None
 
 
 def init_weights_vit_3d(module: nn.Module, name: str = "") -> None:
@@ -147,7 +173,7 @@ def init_weights_vit_3d(module: nn.Module, name: str = "") -> None:
 def vitv2_3d_tiny(
     volume_size: INT_TUP3 = 196,
     volume_patch_size: INT_TUP3 = 14,
-    in_channels=1,
+    med_in_channels=1,
     num_register_tokens=0,
     **kwargs,
 ):
@@ -157,7 +183,7 @@ def vitv2_3d_tiny(
     return ViT3D(
         volume_size=volume_size,
         volume_patch_size=volume_patch_size,
-        med_in_channels=in_channels,
+        med_in_channels=med_in_channels,
         embed_dim=192,
         depth=12,
         num_heads=3,
@@ -172,7 +198,7 @@ def vitv2_3d_tiny(
 def vitv2_3d_small(
     volume_size: INT_TUP3 = 196,
     volume_patch_size: INT_TUP3 = 14,
-    in_channels=1,
+    med_in_channels=1,
     num_register_tokens=0,
     **kwargs,
 ):
@@ -182,7 +208,7 @@ def vitv2_3d_small(
     return ViT3D(
         volume_size=volume_size,
         volume_patch_size=volume_patch_size,
-        med_in_channels=in_channels,
+        med_in_channels=med_in_channels,
         embed_dim=384,
         depth=12,
         num_heads=6,
@@ -197,7 +223,7 @@ def vitv2_3d_small(
 def vitv2_3d_base(
     volume_size: INT_TUP3 = 196,
     volume_patch_size: INT_TUP3 = 14,
-    in_channels=1,
+    med_in_channels=1,
     num_register_tokens=0,
     **kwargs,
 ):
@@ -207,7 +233,7 @@ def vitv2_3d_base(
     return ViT3D(
         volume_size=volume_size,
         volume_patch_size=volume_patch_size,
-        med_in_channels=in_channels,
+        med_in_channels=med_in_channels,
         embed_dim=768,
         depth=12,
         num_heads=12,
@@ -222,7 +248,7 @@ def vitv2_3d_base(
 def vitv2_3d_large(
     volume_size: INT_TUP3 = 196,
     volume_patch_size: INT_TUP3 = 14,
-    in_channels=1,
+    med_in_channels=1,
     num_register_tokens=0,
     **kwargs,
 ):
@@ -232,7 +258,7 @@ def vitv2_3d_large(
     return ViT3D(
         volume_size=volume_size,
         volume_patch_size=volume_patch_size,
-        med_in_channels=in_channels,
+        med_in_channels=med_in_channels,
         embed_dim=1024,
         depth=24,
         num_heads=16,
@@ -247,17 +273,18 @@ if __name__ == "__main__":
     import thop
 
     model = vitv2_3d_small(
-        volume_size=(196, 196, 98), volume_patch_size=(14, 14, 7), in_channels=3
+        volume_size=(196, 196, 28), volume_patch_size=(14, 14, 2), med_in_channels=3
     ).cuda()
 
-    vol = torch.randn(1, 3, 196, 196, 98).cuda()
-    macs, params = thop.profile(model, (vol,))
-    print("Model FLOPs & Params:")
-    print("\t".join(thop.clever_format([macs, params], "%.3f")))
+    vol = torch.randn(1, 3, 196, 196, 28).cuda()
+    # macs, params = thop.profile(model, (vol,))
+    # print("Model FLOPs & Params:")
+    # print("\t".join(thop.clever_format([macs, params], "%.3f")))
 
     with torch.no_grad():
-        out = model(vol)
-    print(
-        f"Output - latent: {out['latent'].shape}, "
-        f"patch_latent: {out['patch_latent'].shape}"
-    )
+        out, recon = model(vol, distill_from=-2)
+
+    for layer_out in out:
+        print([cls_patch.shape for cls_patch in layer_out])
+
+    print(recon.shape)

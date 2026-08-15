@@ -145,18 +145,6 @@ def export_model_to_onnx(
     run_dir: Path,
     checkpoint_name: str = "model",
 ):
-    """Load a checkpoint, convert LoRA→plain if needed, and export to ONNX.
-
-    Steps:
-    1. Load the checkpoint state dict.
-    2. If the training used LoRA, run ``convert_state_dict(..., to_lora=False)``
-       to remap ``qkv.base.weight`` → ``qkv.weight`` and drop ``lora_A/B``.
-    3. Build a fresh plain model (``lora=False, mea=False``) so the export
-       does not contain xFormers / LoRA ops that ONNX cannot handle.
-    4. Load the (possibly converted) state dict with ``strict=True`` and
-       verify that no keys are missing or unexpected.
-    5. Export the plain model to ONNX.
-    """
     import torch.onnx
 
     # 1. Load checkpoint
