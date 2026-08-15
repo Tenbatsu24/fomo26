@@ -132,26 +132,47 @@ class PretrainTrainer(pl.LightningModule):
         image = batch["image"]
         return image
 
-    def _teacher_forward(self, volume: torch.Tensor):
-        b, c, *_ = volume.shape
+    def _teacher_forward(self, volume: torch.Tensor, chunk_size: int = 8):
+        b, c, h, w, d = volume.shape
+        layer_outputs = (
+            None  # list-of-lists: [layer][chunk] -> (cls_chunk, spatial_chunk)
+        )
 
-        vol_flat = rearrange(volume, "b c h w d -> (b d) c h w")
+        for d_start in range(0, d, chunk_size):
+            d_end = min(d_start + chunk_size, d)
+            vol_chunk = volume[..., d_start:d_end]  # b c h w d_chunk
+            d_chunk = d_end - d_start
 
-        ch_min = vol_flat.min(dim=1, keepdim=True).values
-        ch_max = vol_flat.max(dim=1, keepdim=True).values
-        denom = ch_max - ch_min
-        denom[denom == 0] = 1.0
-        vol_norm = (vol_flat - ch_min) / denom
+            vol_flat = rearrange(vol_chunk, "b c h w d -> (b d) c h w")
+            ch_min = vol_flat.min(dim=1, keepdim=True).values
+            ch_max = vol_flat.max(dim=1, keepdim=True).values
+            denom = ch_max - ch_min
+            denom[denom == 0] = 1.0
+            vol_norm = (vol_flat - ch_min) / denom
+            vol_norm = (vol_norm - self.imagenet_mean) / self.imagenet_std
 
-        vol_norm = (vol_norm - self.imagenet_mean) / self.imagenet_std
+            intermediates = self.teacher_model(vol_norm, distill_from=self.distill_from)
 
-        intermediates = self.teacher_model(vol_norm, distill_from=self.distill_from)
+            if layer_outputs is None:
+                layer_outputs = [[] for _ in intermediates]
+
+            for layer_idx, (cls_token, patch_token) in enumerate(intermediates):
+                # b=b, d=d_chunk pins the unflatten to THIS chunk's own (b d) ordering,
+                # so samples from different chunks never get interleaved.
+                cls_token = rearrange(cls_token, "(b d) c -> b c d", b=b, d=d_chunk)
+                spatial = rearrange(
+                    patch_token, "(b d) c h_p w_p -> b c h_p w_p d", b=b, d=d_chunk
+                )
+                layer_outputs[layer_idx].append((cls_token, spatial))
 
         outputs = []
-        for layer_idx, (cls_token, patch_token) in enumerate(intermediates):
-            cls_token = rearrange(cls_token, "(b d) c -> b c d", b=b).mean(dim=-1)
-            spatial = rearrange(patch_token, "(b d) c h_p w_p -> b c h_p w_p d", b=b)
-            outputs.append((cls_token, spatial))
+        for chunks in layer_outputs:
+            cls_chunks, spatial_chunks = zip(*chunks)
+            # chunks were produced in increasing d_start order, so concatenating
+            # along dim=-1 reconstructs the original depth ordering exactly.
+            cls_full = torch.cat(cls_chunks, dim=-1).mean(dim=-1)
+            spatial_full = torch.cat(spatial_chunks, dim=-1)
+            outputs.append((cls_full, spatial_full))
 
         return outputs
 
@@ -206,6 +227,11 @@ class PretrainTrainer(pl.LightningModule):
             # Average only over samples that actually had masking applied
             n_masked_samples = (num_masked > 1).sum().clamp(min=1)
             huber = huber_per_elem.sum() / n_masked_samples
+
+            loss_dict["loss"] += huber
+            loss_dict["huber"] = huber
+        elif recon is not None:
+            huber = F.huber_loss(recon, volume, reduction="mean")
 
             loss_dict["loss"] += huber
             loss_dict["huber"] = huber
