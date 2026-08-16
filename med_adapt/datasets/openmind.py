@@ -169,8 +169,8 @@ class OpenNeuroDataset(Dataset):
     ):
         row = self.df.iloc[index]
         image_path = self._resolve_image_path(row["image_path"])
-        image = self._load_image(image_path)
-        # image = torch.rand((1, 224, 224, 196), dtype=torch.float32)
+        # image = self._load_image(image_path)
+        image = torch.rand((1, 224, 224, 196), dtype=torch.float32)
         sample = {
             "image": image,
             "label": 0,

@@ -247,3 +247,54 @@ class CenterCrop3D:
                 ]
 
         return out
+
+
+import random
+
+
+class RandomSwapSpatialDims3D:
+
+    def __init__(self, p=0.5, label_key=None):
+        self.p = p
+        self.label_key = label_key
+
+        # indices of H,W,D relative to the last 3 dims
+        self._perms = [
+            (0, 1, 2),
+            (0, 2, 1),
+            (1, 0, 2),
+            (1, 2, 0),
+            (2, 0, 1),
+            (2, 1, 0),
+        ]
+
+    def _apply(self, x, perm):
+        ndim = x.ndim
+
+        spatial = [ndim - 3 + p for p in perm]
+
+        order = list(range(ndim - 3)) + spatial
+
+        return x.permute(*order)
+
+    def __call__(self, sample):
+        if random.random() >= self.p:
+            return sample
+
+        image = sample["image"]
+
+        H, W, D = image.shape[-3:]
+
+        perm = random.choice(self._perms)
+
+        out = dict(sample)
+
+        out["image"] = self._apply(image, perm)
+
+        if self.label_key is not None and self.label_key in sample:
+            label = sample["label"]
+
+            if isinstance(label, torch.Tensor) and label.shape[-3:] == (H, W, D):
+                out["label"] = self._apply(label, perm)
+
+        return out

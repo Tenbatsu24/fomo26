@@ -1,8 +1,7 @@
 """Main entry point for med_adapt training.
 
 Usage:
-    python main.py --config configs/default.json --fold 0
-    python main.py --config configs/default.json --fold 0 --test
+    python main.py --config configs/pretrain.json
 """
 
 import argparse
@@ -26,6 +25,7 @@ from med_adapt.augs import (
     PadToShape3D,
     RandomResizedCrop3D,
     CenterCrop3D,
+    RandomSwapSpatialDims3D,
 )
 from med_adapt.trainer import PretrainTrainer
 
@@ -63,13 +63,17 @@ ModelCheckpoint.check_monitor_top_k = check_monitor_top_k
 
 def build_cpu_transforms(crop_size, training, task):
     label_key = "label" if task == "segmentation" else None
-    tforms = []
     if training:
-        tforms.append(PadToShape3D(crop_size, label_key=label_key))
-        tforms.append(RandomResizedCrop3D(crop_size, label_key=label_key))
+        tforms = [
+            RandomSwapSpatialDims3D(p=0.5, label_key=label_key),
+            PadToShape3D(crop_size, label_key=label_key),
+            RandomResizedCrop3D(crop_size, label_key=label_key),
+        ]
     else:
-        tforms.append(PadToShape3D(crop_size, label_key=label_key))
-        tforms.append(CenterCrop3D(crop_size, label_key=label_key))
+        tforms = [
+            PadToShape3D(crop_size, label_key=label_key),
+            CenterCrop3D(crop_size, label_key=label_key),
+        ]
     return transforms.Compose(tforms) if tforms else None
 
 
@@ -107,7 +111,6 @@ def build_model(config, n_modalities):
 def main():
     parser = argparse.ArgumentParser(description="med_adapt training")
     parser.add_argument("--config", type=str, required=True)
-    parser.add_argument("--fold", type=int, required=True)
 
     args = parser.parse_args()
 
@@ -123,7 +126,6 @@ def main():
     config["n_modalities"] = n_modalities
 
     data_root = str(get_nnssl_preprocessed_path())
-    fold = args.fold
     seed = config.seed
     crop_size = tuple(config.data.crop_size)
 
@@ -159,7 +161,7 @@ def main():
     results_path = get_results_path()
 
     lr_monitor = LearningRateMonitor(logging_interval="step")
-    csv_logger = CSVLogger(results_path, name=f"{run_name}/fold_{fold}")
+    csv_logger = CSVLogger(results_path, name=f"{run_name}")
     log_dir = Path(csv_logger.log_dir)
 
     checkpoint_callback = ModelCheckpoint(
