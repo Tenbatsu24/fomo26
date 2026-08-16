@@ -164,8 +164,8 @@ class MaskGenerator3D:
 def generate_masks(
     patch_resolution,
     number_of_samples,
-    mask_prob=0.75,
-    per_sample_range=(0.05, 0.1),
+    mask_prob=0.1,
+    per_sample_range=(0.1, 0.2),
 ):
     """
     Returns:
@@ -273,13 +273,13 @@ def visualize_volume_mask(mask_keep):
 
 
 def main():
-    h = w = d = 16
+    h, w, d = 14, 14, 16
 
     masks = generate_masks(
         (h, w, d),
-        number_of_samples=8,
-        mask_prob=0.75,
-        per_sample_range=(0.05, 0.15),
+        number_of_samples=4,
+        mask_prob=1.0,
+        per_sample_range=(0.10, 0.20),
     )
 
     for mask in masks:

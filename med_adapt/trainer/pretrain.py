@@ -182,27 +182,12 @@ class PretrainTrainer(pl.LightningModule):
         cls_total, token_total = 0.0, 0.0
         n = len(teacher_out)
 
-        for (t_c, t_p), (s_c, s_p, *_) in zip(teacher_out, student_out):
-            t_interp = F.interpolate(
-                t_p,
-                size=(s_p.shape[2], s_p.shape[3], s_p.shape[4]),
-                mode="trilinear",
-                align_corners=False,
-            )
-            cls_total += -torch.cosine_similarity(t_c, s_c, dim=1).mean()
-            token_total += (
-                -torch.cosine_similarity(t_interp, s_p, dim=1)
-                .mean(dim=(1, 2, 3))
-                .mean()
-            )
+        # Build voxel-space keep mask once when masking is active, so both
+        # cls and token cosine terms share the same spatial weighting.
+        mask_3d = None
+        mask_up = None
 
-        loss_dict = {
-            "loss": (2 - 2 * ((0.2 * cls_total + 0.8 * token_total) / n)),
-            "cls_cos": 2 - 2 * (cls_total / n),
-            "token_cos": 2 - 2 * (token_total / n),
-        }
-
-        if recon is not None and mask is not None:
+        if mask is not None:
             mask_3d = (
                 mask.unflatten(1, self.model.patch_embed.patches_resolution)
                 .unsqueeze(1)
@@ -211,6 +196,51 @@ class PretrainTrainer(pl.LightningModule):
             mask_up = torch.repeat_interleave(mask_3d, self.model.patch_size[0], dim=2)
             mask_up = torch.repeat_interleave(mask_up, self.model.patch_size[1], dim=3)
             mask_up = torch.repeat_interleave(mask_up, self.model.patch_size[2], dim=4)
+
+        for (t_c, t_p), (s_c, s_p, *_) in zip(teacher_out, student_out):
+            t_interp = F.interpolate(
+                t_p,
+                size=(s_p.shape[2], s_p.shape[3], s_p.shape[4]),
+                mode="trilinear",
+                align_corners=False,
+            )
+            t_cn, s_cn = F.normalize(t_c, p=2, eps=1e-6, dim=1), F.normalize(
+                s_c, p=2, eps=1e-6, dim=1
+            )
+            cls_total += 2 - 2 * (t_cn * s_cn).sum(dim=1).mean()
+            t_pn, s_pn = F.normalize(t_interp, p=2, eps=1e-6, dim=1), F.normalize(
+                s_p, p=2, eps=1e-6, dim=1
+            )
+
+            if mask_3d is None:
+                token_total += (
+                    2 - 2 * (t_pn * s_pn).sum(dim=1).mean(dim=(2, 3, 4)).mean()
+                )
+            else:
+                # we only want loss where the original mask was 0 (dropped/masked-out)
+                loss_mask_tok = (1.0 - mask_3d).squeeze(1)  # (B, D', H', W')
+
+                cos_map = (t_pn * s_pn).sum(dim=1)  # (B, D', H', W')
+                masked_cos_sum = (cos_map * loss_mask_tok).sum(dim=(1, 2, 3))
+                num_masked_tok = loss_mask_tok.sum(dim=(1, 2, 3))
+                has_masked_tok = num_masked_tok > 0
+                denom = num_masked_tok.clamp(min=1)
+
+                token_loss_per_sample = torch.where(
+                    has_masked_tok,
+                    2 - 2 * (masked_cos_sum / denom),
+                    torch.zeros_like(masked_cos_sum),
+                )
+                n_masked_tok_samples = has_masked_tok.sum().clamp(min=1)
+                token_total += token_loss_per_sample.sum() / n_masked_tok_samples
+
+        loss_dict = {
+            "loss": (0.2 * cls_total + 0.8 * token_total) / n,
+            "cls_cos": cls_total / n,
+            "token_cos": token_total / n,
+        }
+
+        if recon is not None and mask is not None:
             # loss_mask == 1 on dropped (masked) regions
             loss_mask = 1.0 - mask_up
             masked_recon = recon * loss_mask
@@ -218,17 +248,19 @@ class PretrainTrainer(pl.LightningModule):
             # Per-element huber, then normalise per batch element by its
             # own masked voxel count, sum across the batch, and average.
             huber_per_elem = F.huber_loss(masked_recon, masked_volume, reduction="none")
-            num_masked = loss_mask.sum(dim=(1, 2, 3, 4)).clamp(min=1)
-            huber_per_elem = huber_per_elem.sum(dim=(1, 2, 3, 4)) / num_masked
+
+            num_masked = loss_mask.sum(dim=(1, 2, 3, 4))
+            has_masked = num_masked > 0
+            num_masked_denom = num_masked.clamp(min=1)
+            huber_per_elem = huber_per_elem.sum(dim=(1, 2, 3, 4)) / num_masked_denom
             # Average only over samples that actually had masking applied
-            n_masked_samples = (num_masked > 1).sum().clamp(min=1)
+            n_masked_samples = has_masked.sum().clamp(min=1)
             huber = huber_per_elem.sum() / n_masked_samples
 
             loss_dict["loss"] += huber
             loss_dict["huber"] = huber
         elif recon is not None:
             huber = F.huber_loss(recon, volume, reduction="mean")
-
             loss_dict["loss"] += huber
             loss_dict["huber"] = huber
 
