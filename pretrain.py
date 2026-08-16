@@ -12,7 +12,7 @@ import torch
 import lightning as pl
 
 from torchvision import transforms
-from lightning.pytorch.loggers import CSVLogger
+from lightning.pytorch.loggers import WandbLogger
 from lightning.pytorch.callbacks import ModelCheckpoint, LearningRateMonitor
 
 from med_adapt.datasets import build_pretrain_dataloaders
@@ -161,8 +161,11 @@ def main():
     results_path = get_results_path()
 
     lr_monitor = LearningRateMonitor(logging_interval="step")
-    csv_logger = CSVLogger(results_path, name=f"{run_name}")
-    log_dir = Path(csv_logger.log_dir)
+    # csv_logger = CSVLogger(results_path, name=f"{run_name}")
+    wandb_logger = WandbLogger(
+        run_name, save_dir=results_path, project="fomo26", log_model="all"
+    )
+    log_dir = Path(wandb_logger.save_dir)
 
     checkpoint_callback = ModelCheckpoint(
         dirpath=log_dir,
@@ -187,7 +190,7 @@ def main():
         default_root_dir=log_dir,
         callbacks=[checkpoint_callback, last_checkpoint_callback, lr_monitor],
         **config.trainer.to_dict(),
-        logger=csv_logger,
+        logger=wandb_logger,
     )
 
     pl_trainer.fit(trainer, train_dataloaders=train_dl, val_dataloaders=val_dl)
