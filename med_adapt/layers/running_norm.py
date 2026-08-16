@@ -9,7 +9,7 @@ class RunningNorm(nn.Module):
         self,
         num_features: int,
         channel_dim: int = 1,
-        momentum: float = 0.9,
+        momentum: float = 0.1,
         eps: float = 1e-5,
     ):
         super().__init__()
@@ -48,7 +48,7 @@ class RunningNorm(nn.Module):
         return mean, var
 
     def forward(self, x):
-        if self.training:
+        if self.training and self.momentum > 0:
             mean, var = self._compute_global_stats(x)
 
             with torch.no_grad():
@@ -69,6 +69,8 @@ class RunningNorm(nn.Module):
     def normalize(self, x):
         shape = [1] * x.ndim
         shape[self.channel_dim] = -1
-        return (x - self.running_mean.view(shape)) / torch.sqrt(
-            self.running_var.view(shape) + self.eps
-        )
+
+        mean = self.running_mean.view(*shape)
+        var = self.running_var.view(*shape)
+
+        return (x - mean) * torch.rsqrt(var + self.eps)

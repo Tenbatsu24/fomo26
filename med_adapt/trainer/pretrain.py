@@ -69,7 +69,7 @@ class PretrainTrainer(pl.LightningModule):
         self.teacher_model = teacher_model
 
         self.patch_stats_tracker = RunningNorm(
-            self.teacher_model.embed_dim, channel_dim=1, momentum=0.9
+            self.teacher_model.embed_dim, channel_dim=1, momentum=0.1
         )
 
         self._load_pretrained()
@@ -145,6 +145,13 @@ class PretrainTrainer(pl.LightningModule):
                         Schedule.parse(sched),
                         apply_wd_multiplier,
                     )
+            if key == "rm_momentum":
+                scheduler.add(
+                    self.patch_stats_tracker,
+                    "momentum",
+                    Schedule.parse(sched),
+                    helpful_name=key,
+                )
         return [opt], scheduler
 
     def preprocess_batch(self, batch, train: bool) -> tuple[Any, Any]:
