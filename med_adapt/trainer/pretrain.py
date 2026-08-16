@@ -14,6 +14,7 @@ from loguru import logger
 from lightning import Callback
 from ml_collections import ConfigDict
 
+from med_adapt.layers import RunningNorm
 from med_adapt.utils import get_models_path
 from med_adapt.augs import default_disable_aug
 from med_adapt.utils.masking import generate_masks
@@ -66,6 +67,12 @@ class PretrainTrainer(pl.LightningModule):
 
         self.model = model
         self.teacher_model = teacher_model
+        self.cls_stats_tracker = RunningNorm(
+            self.teacher_model.embed_dim, channel_dim=1, momentum=0.9
+        )
+        self.patch_stats_tracker = RunningNorm(
+            self.teacher_model.embed_dim, channel_dim=1, momentum=0.9
+        )
 
         self._load_pretrained()
 
@@ -190,8 +197,10 @@ class PretrainTrainer(pl.LightningModule):
             cls_chunks, spatial_chunks = zip(*chunks)
             # chunks were produced in increasing d_start order, so concatenating
             # along dim=-1 reconstructs the original depth ordering exactly.
-            cls_full = torch.cat(cls_chunks, dim=-1).mean(dim=-1)
-            spatial_full = torch.cat(spatial_chunks, dim=-1)
+            cls_full = self.cls_stats_tracker(torch.cat(cls_chunks, dim=-1)).mean(
+                dim=-1
+            )
+            spatial_full = self.patch_stats_tracker(torch.cat(spatial_chunks, dim=-1))
             outputs.append((cls_full, spatial_full))
 
         return outputs
