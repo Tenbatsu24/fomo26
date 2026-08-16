@@ -6,6 +6,7 @@ from typing import Sequence, Union, Any
 import torch
 import lightning as pl
 import torch.nn.functional as F
+import torch.distributed as dist
 
 from einops import rearrange
 from loguru import logger
@@ -25,6 +26,24 @@ def apply_lr_multiplier(loc, step, sched):
 
 def apply_wd_multiplier(loc, step, sched):
     return loc.get("wd_multiplier", 1.0) * sched(step)
+
+
+def get_per_sample_range(low, high, *, batch_size):
+    world_size = dist.get_world_size() if dist.is_initialized() else 1
+    rank = dist.get_rank() if dist.is_initialized() else 0
+
+    global_batch = batch_size * world_size
+
+    global_values = torch.linspace(
+        low,
+        high,
+        global_batch,
+    )
+
+    start = rank * batch_size
+    end = start + batch_size
+
+    return global_values[start:end]
 
 
 class PretrainTrainer(pl.LightningModule):
@@ -219,13 +238,9 @@ class PretrainTrainer(pl.LightningModule):
                 has_masked_tok = num_masked_tok > 0
                 denom = num_masked_tok.clamp(min=1)
 
-                token_loss_per_sample = torch.where(
-                    has_masked_tok,
-                    2 - 2 * (masked_cos_sum / denom),
-                    torch.zeros_like(masked_cos_sum),
-                )
-                n_masked_tok_samples = has_masked_tok.sum().clamp(min=1)
-                token_total += token_loss_per_sample.sum() / n_masked_tok_samples
+                token_loss_per_sample = 2 - 2 * (masked_cos_sum / denom)
+                n_masked_samples = has_masked_tok.sum().clamp(min=1)
+                token_total += token_loss_per_sample.sum() / n_masked_samples
 
         loss_dict = {
             "loss": (0.2 * cls_total + 0.8 * token_total) / n,
@@ -270,11 +285,16 @@ class PretrainTrainer(pl.LightningModule):
         ph = H // self.model.patch_size[0]
         pw = W // self.model.patch_size[1]
         pd = D // self.model.patch_size[2]
+
+        per_sample_range = get_per_sample_range(
+            *self.per_sample_range, batch_size=batch_size
+        )
+
         masks = generate_masks(
             patch_resolution=(ph, pw, pd),
             number_of_samples=batch_size,
             mask_prob=self.mask_prob,
-            per_sample_range=self.per_sample_range,
+            per_sample_range=per_sample_range,  # [0.1, 0.5]
         )
         return masks.to(self.device)
 
