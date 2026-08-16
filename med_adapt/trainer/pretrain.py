@@ -203,15 +203,11 @@ class PretrainTrainer(pl.LightningModule):
         }
 
         if recon is not None and mask is not None:
-            # Upsample patch-resolution mask to image resolution via
-            # repeat_interleave, then invert so that 1 marks dropped
-            # (masked) voxels where the huber loss should be computed.
-            batch_size = volume.shape[0]
-            ph = volume.shape[2] // self.model.patch_size[0]
-            pw = volume.shape[3] // self.model.patch_size[1]
-            pd = volume.shape[4] // self.model.patch_size[2]
-            # (batch_size, 1, ph, pw, pd) → repeat → (batch_size, 1, H, W, D)
-            mask_3d = mask.view(batch_size, 1, ph, pw, pd).float()
+            mask_3d = (
+                mask.unflatten(1, self.model.patch_embed.patches_resolution)
+                .unsqueeze(1)
+                .float()
+            )
             mask_up = torch.repeat_interleave(mask_3d, self.model.patch_size[0], dim=2)
             mask_up = torch.repeat_interleave(mask_up, self.model.patch_size[1], dim=3)
             mask_up = torch.repeat_interleave(mask_up, self.model.patch_size[2], dim=4)
