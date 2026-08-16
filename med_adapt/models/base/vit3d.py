@@ -70,8 +70,10 @@ class ViT3D(ViTv2):
 
         if self.use_mask:
             self.mask_token = torch.nn.Parameter(
-                torch.zeros(1, 1, self.embed_dim), requires_grad=True
+                torch.zeros(1, self.embed_dim), requires_grad=True
             )
+
+        self.init_weights()
 
     def interpolate_pos_encoding(self, x, h, w, d):
         previous_dtype = x.dtype
@@ -122,7 +124,9 @@ class ViT3D(ViTv2):
         x = self.patch_embed(x)
 
         if mask is not None and self.mask_token is not None:
-            x = torch.where(mask.unsqueeze(-1), self.mask_token.to(x.dtype), x)
+            x = torch.where(
+                mask.unsqueeze(-1), self.mask_token.to(x.dtype).unsqueeze(0), x
+            )
 
         x = torch.cat((self.cls_token.expand(x.shape[0], -1, -1), x), dim=1)
         x = x + self.interpolate_pos_encoding(x, h, w, d)
