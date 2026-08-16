@@ -17,7 +17,7 @@
     "checkpoint": "small/neco/encoder_teacher.ckpt"
   },
   "data": {
-    "dataset_name": "CLS002_FOMO26_Infarct",
+    "dataset_name": "OpenMind",
     "crop_size": [
       196,
       196,
@@ -25,8 +25,7 @@
     ],
     "batch_size": 2,
     "num_workers": 2,
-    "resample_spacing": "median",
-    "resize_to": null
+    "num_samples": 250
   },
   "distill_from": -6,
   "enable_aug": true,
@@ -48,7 +47,7 @@
     "gradient_clip_algorithm": "norm",
     "gradient_clip_val": 3.0,
     "limit_val_batches": 1.0,
-    "max_epochs": 2,
+    "max_epochs": 100,
     "num_nodes": 1,
     "num_sanity_val_steps": 0,
     "precision": "32-true",

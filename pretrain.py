@@ -15,21 +15,17 @@ import lightning as pl
 from torchvision import transforms
 from lightning.pytorch.loggers import CSVLogger
 from lightning.pytorch.callbacks import ModelCheckpoint, LearningRateMonitor
-from gardening_tools.modules.transforms.cropping_and_padding import (
-    Torch_CropPad,
-    Torch_Pad,
-    Torch_CenterCrop,
-)
 
+from med_adapt.datasets import build_pretrain_dataloaders
 from med_adapt.registry import STORE
-from med_adapt.datasets import build_dataloaders
 from med_adapt.utils.config import get_config, get_logger
-from med_adapt.utils.paths import get_results_path, get_data_path
-from med_adapt.augs.default import (
+from med_adapt.utils.paths import get_results_path, get_nnssl_preprocessed_path
+from med_adapt.augs import (
     default_enable_aug,
     default_disable_aug,
-    default_norm,
-    Torch_Resize,
+    PadToShape3D,
+    RandomResizedCrop3D,
+    CenterCrop3D,
 )
 from med_adapt.trainer import PretrainTrainer
 
@@ -65,16 +61,15 @@ def check_monitor_top_k(self, trainer, current=None):
 ModelCheckpoint.check_monitor_top_k = check_monitor_top_k
 
 
-def build_cpu_transforms(crop_size, training, task, resize_to=None):
+def build_cpu_transforms(crop_size, training, task):
     label_key = "label" if task == "segmentation" else None
     tforms = []
-    if resize_to is not None:
-        tforms.append(Torch_Resize(label_key=label_key, target_size=resize_to))
     if training:
-        tforms.append(Torch_CropPad(label_key=label_key, patch_size=crop_size))
+        tforms.append(PadToShape3D(crop_size, label_key=label_key))
+        tforms.append(RandomResizedCrop3D(crop_size, label_key=label_key))
     else:
-        tforms.append(Torch_Pad(label_key=label_key, patch_size=crop_size))
-        tforms.append(Torch_CenterCrop(label_key=label_key, target_size=crop_size))
+        tforms.append(PadToShape3D(crop_size, label_key=label_key))
+        tforms.append(CenterCrop3D(crop_size, label_key=label_key))
     return transforms.Compose(tforms) if tforms else None
 
 
@@ -127,31 +122,25 @@ def main():
     config["num_classes"] = n_classes
     config["n_modalities"] = n_modalities
 
-    data_root = str(get_data_path())
+    data_root = str(get_nnssl_preprocessed_path())
     fold = args.fold
     seed = config.seed
     crop_size = tuple(config.data.crop_size)
 
-    train_cpu_transforms = build_cpu_transforms(
-        crop_size, training=True, task=task, resize_to=config.data.resize_to
-    )
-    val_cpu_transforms = build_cpu_transforms(
-        crop_size, training=False, task=task, resize_to=config.data.resize_to
-    )
+    train_cpu_transforms = build_cpu_transforms(crop_size, training=True, task=task)
+    val_cpu_transforms = build_cpu_transforms(crop_size, training=False, task=task)
 
     teacher_model, student_model = build_model(config, n_modalities)
-    train_dl, val_dl, _ = build_dataloaders(
+    train_dl, val_dl = build_pretrain_dataloaders(
         dataset_class=dataset_class,
         root=data_root,
-        fold=fold,
-        seed=seed,
+        split_seed=seed,
+        sampler_seed=seed,
         batch_size=config.data.batch_size,
         num_workers=config.data.num_workers,
+        num_train_samples=config.data.num_samples * config.data.batch_size,
         train_transforms=train_cpu_transforms,
         val_transforms=val_cpu_transforms,
-        val_drop_last=False,
-        resample_spacing=config.data.resample_spacing,
-        resize_to=config.data.resize_to,
     )
 
     if config.enable_aug:
@@ -159,14 +148,11 @@ def main():
     else:
         gpu_transforms = default_disable_aug(ndim=3)
 
-    norm_transforms = default_norm()
-
     trainer = PretrainTrainer(
         config=config,
         model=student_model,
         teacher_model=teacher_model,
         gpu_augmentations=gpu_transforms,
-        normalisation=norm_transforms,
     )
 
     run_name = f"{dataset_name}-{config.model.size}"

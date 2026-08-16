@@ -111,6 +111,7 @@ class _LazyPath:
 # ---------------------------------------------------------------------------
 
 DATA_ROOT = _LazyPath("MED_ADAPT_DATA", "FOMO26_DATA")
+NNSSL_ROOT = _LazyPath("nnssl_preprocessed", "FOMO26_DATA")
 MODELS_ROOT = _LazyPath("MED_ADAPT_MODELS", "FOMO26_MODELS")
 RESULTS_ROOT = _LazyPath("MED_ADAPT_RESULTS", "FOMO26_RESULTS")
 CONFIGS_ROOT = _LazyPath("MED_ADAPT_CONFIGS", "FOMO26_CONFIGS")
@@ -130,6 +131,11 @@ else:
 def get_data_path() -> Path:
     """Return the data root directory."""
     return DATA_ROOT._resolve()  # type: ignore
+
+
+def get_nnssl_preprocessed_path() -> Path:
+    """Return the data root directory."""
+    return NNSSL_ROOT._resolve()  # type: ignore
 
 
 def get_models_path() -> Path:

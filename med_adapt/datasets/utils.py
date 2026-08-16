@@ -107,3 +107,49 @@ def build_dataloaders(
     )
 
     return train_dl, val_dl, test_dl
+
+
+def build_pretrain_dataloaders(
+    dataset_class,
+    root,
+    batch_size,
+    num_workers,
+    split_seed=42,
+    sampler_seed=42,
+    num_train_samples=None,
+    train_transforms=None,
+    val_transforms=None,
+):
+    from torch.utils.data import DataLoader
+
+    from med_adapt.datasets.sampler import UniformModalitySampler
+
+    tr_ds = dataset_class(
+        root=root,
+        split="train",
+        seed=split_seed,
+        transform=train_transforms,
+    )
+
+    sampler = UniformModalitySampler(
+        tr_ds.df["modality"].tolist(), seed=sampler_seed, num_samples=num_train_samples
+    )
+
+    tr_dl = DataLoader(
+        tr_ds,
+        batch_size=batch_size,
+        sampler=sampler,
+        num_workers=num_workers,
+        pin_memory=True,
+        drop_last=True,
+    )
+
+    val_ds = dataset_class(
+        root=root, split="val", seed=split_seed, transform=val_transforms
+    )
+
+    val_dl = DataLoader(
+        val_ds, batch_size=batch_size, num_workers=2, pin_memory=False, drop_last=False
+    )
+
+    return tr_dl, val_dl

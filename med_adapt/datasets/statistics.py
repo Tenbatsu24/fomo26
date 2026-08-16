@@ -15,9 +15,8 @@ from typing import Any, Dict, List
 import numpy as np
 import matplotlib.pyplot as plt
 
-from .io import ensure_3d, load_nifti
-
 from med_adapt.utils.config import get_logger
+from med_adapt.datasets.io import ensure_3d, load_nifti
 
 logger = get_logger(__name__)
 
