@@ -9,7 +9,7 @@
     "use_patch_decode": true,
     "use_mask": true,
     "mask": {
-      "mask_prob": 0.1,
+      "mask_prob": 1.0,
       "per_sample_range": [0.1, 0.2]
     }
   },
@@ -21,9 +21,9 @@
     "crop_size": [
       196,
       196,
-      128
+      112
     ],
-    "batch_size": 6,
+    "batch_size": 4,
     "num_workers": 8,
     "num_samples": 1000
   },
@@ -32,7 +32,7 @@
   "optimizer": {
     "type": "AdamW",
     "params": {
-      "lr": 0.002,
+      "lr": 0.0,
       "weight_decay": 0.05,
       "patch_embed_lr_mult": 0.2,
       "layerwise_decay": 0.9
@@ -41,7 +41,7 @@
   "trainer": {
     "accelerator": "auto",
     "accumulate_grad_batches": 1,
-    "benchmark": false,
+    "benchmark": true,
     "deterministic": false,
     "devices": "auto",
     "gradient_clip_algorithm": "norm",
@@ -49,20 +49,21 @@
     "max_epochs": 100,
     "num_nodes": 1,
     "num_sanity_val_steps": 0,
-    "precision": "32-true",
+    "precision": "bf16-mixed",
     "strategy": "auto",
     "sync_batchnorm": false,
-    "check_val_every_n_epoch": 5,
-    "limit_val_batches": 50
+    "check_val_every_n_epoch": 1,
+    "limit_val_batches": 50,
+    "log_every_n_steps": 5
   },
   "scheduler": [
     [
       "lr",
-      "CatSched(LinSched(2e-5, 2e-3), CosSched(2e-3, 2e-6), 15)"
+      "CatSched(LinSched(2e-5, 2e-3), CosSched(2e-3, 2e-6), 5)"
     ],
     [
       "weight_decay",
-      "CosSched(0.04, 0.4)"
+      "CosSched(0.04, 0.40)"
     ]
   ],
   "metrics": null,
