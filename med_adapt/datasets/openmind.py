@@ -16,6 +16,8 @@ from med_adapt.registry import register_dataset
 
 @register_dataset("OpenMind")
 class OpenNeuroDataset(Dataset):
+    FOLDER_NAME: str = "Dataset745_OpenMind"
+
     TASK_NAME: str = "OpenNeuro"
     TASK_TYPE: str = "pretrain"
 
@@ -33,7 +35,7 @@ class OpenNeuroDataset(Dataset):
     ):
         super().__init__()
 
-        self.root = Path(root)
+        self.root = Path(root) / self.FOLDER_NAME
         self.split = split
         self.seed = seed
         self.transform = transform
@@ -169,8 +171,8 @@ class OpenNeuroDataset(Dataset):
     ):
         row = self.df.iloc[index]
         image_path = self._resolve_image_path(row["image_path"])
-        # image = self._load_image(image_path)
-        image = torch.rand((1, 224, 224, 196), dtype=torch.float32)
+        image = self._load_image(image_path)
+        # image = torch.rand((1, 224, 224, 196), dtype=torch.float32)
         sample = {
             "image": image,
             "label": 0,
