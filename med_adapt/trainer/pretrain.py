@@ -67,9 +67,7 @@ class PretrainTrainer(pl.LightningModule):
 
         self.model = model
         self.teacher_model = teacher_model
-        self.cls_stats_tracker = RunningNorm(
-            self.teacher_model.embed_dim, channel_dim=1, momentum=0.9
-        )
+
         self.patch_stats_tracker = RunningNorm(
             self.teacher_model.embed_dim, channel_dim=1, momentum=0.9
         )
@@ -197,10 +195,10 @@ class PretrainTrainer(pl.LightningModule):
             cls_chunks, spatial_chunks = zip(*chunks)
             # chunks were produced in increasing d_start order, so concatenating
             # along dim=-1 reconstructs the original depth ordering exactly.
-            cls_full = self.cls_stats_tracker(torch.cat(cls_chunks, dim=-1)).mean(
-                dim=-1
-            )
             spatial_full = self.patch_stats_tracker(torch.cat(spatial_chunks, dim=-1))
+            cls_full = self.patch_stats_tracker.normalize(
+                torch.cat(cls_chunks, dim=-1)
+            ).mean(dim=-1)
             outputs.append((cls_full, spatial_full))
 
         return outputs
@@ -239,7 +237,7 @@ class PretrainTrainer(pl.LightningModule):
 
             if mask_3d is None:
                 token_total += (
-                    2 - 2 * (t_pn * s_pn).sum(dim=1).mean(dim=(2, 3, 4)).mean()
+                    2 - 2 * (t_pn * s_pn).sum(dim=1).mean(dim=(1, 2, 3)).mean()
                 )
             else:
                 cos_map = (t_pn * s_pn).sum(dim=1)  # (B, D', H', W')
