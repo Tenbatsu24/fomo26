@@ -242,7 +242,7 @@ class PretrainTrainer(pl.LightningModule):
                 s_p, p=2, eps=1e-6, dim=1
             )
 
-            if mask_3d is None:
+            if (mask_3d is None) or True:
                 token_total += (
                     2 - 2 * (t_pn * s_pn).sum(dim=1).mean(dim=(1, 2, 3)).mean()
                 )

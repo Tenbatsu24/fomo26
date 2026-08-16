@@ -5,6 +5,7 @@ Usage:
 """
 
 import argparse
+import uuid
 
 from pathlib import Path
 
@@ -165,10 +166,14 @@ def main():
     wandb_logger = WandbLogger(
         run_name, save_dir=results_path, project="fomo26", log_model="all"
     )
-    log_dir = Path(wandb_logger.save_dir)
+
+    model_dir = (
+        results_path / run_name / (wandb_logger.experiment.id or str(uuid.uuid4()))
+    )
+    print(model_dir)
 
     checkpoint_callback = ModelCheckpoint(
-        dirpath=log_dir,
+        dirpath=model_dir,
         filename=f"step={{step}}-val_loss={{val/loss:.3f}}",
         monitor=f"val/loss",
         auto_insert_metric_name=False,
@@ -179,7 +184,7 @@ def main():
         save_weights_only=True,
     )
     last_checkpoint_callback = ModelCheckpoint(
-        dirpath=log_dir,
+        dirpath=model_dir,
         filename="last",
         save_last=True,
         enable_version_counter=False,
@@ -187,7 +192,7 @@ def main():
     )
 
     pl_trainer = pl.Trainer(
-        default_root_dir=log_dir,
+        default_root_dir=results_path,
         callbacks=[checkpoint_callback, last_checkpoint_callback, lr_monitor],
         **config.trainer.to_dict(),
         logger=wandb_logger,
