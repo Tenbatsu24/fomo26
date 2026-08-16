@@ -4,13 +4,13 @@
     "volume_patch_size": [
       14,
       14,
-      2
+      8
     ],
     "use_patch_decode": true,
     "use_mask": true,
     "mask": {
-      "mask_prob": 0.75,
-      "per_sample_range": [0.05, 0.15]
+      "mask_prob": 0.1,
+      "per_sample_range": [0.1, 0.2]
     }
   },
   "pretrained": {
@@ -21,11 +21,11 @@
     "crop_size": [
       196,
       196,
-      28
+      128
     ],
-    "batch_size": 2,
-    "num_workers": 2,
-    "num_samples": 250
+    "batch_size": 6,
+    "num_workers": 8,
+    "num_samples": 1000
   },
   "distill_from": -6,
   "enable_aug": true,
@@ -46,19 +46,19 @@
     "devices": "auto",
     "gradient_clip_algorithm": "norm",
     "gradient_clip_val": 3.0,
-    "limit_val_batches": 1.0,
     "max_epochs": 100,
     "num_nodes": 1,
     "num_sanity_val_steps": 0,
     "precision": "32-true",
     "strategy": "auto",
     "sync_batchnorm": false,
-    "check_val_every_n_epoch": 1
+    "check_val_every_n_epoch": 5,
+    "limit_val_batches": 50
   },
   "scheduler": [
     [
       "lr",
-      "CatSched(LinSched(2e-5, 2e-3), CosSched(2e-3, 2e-6), 0.15)"
+      "CatSched(LinSched(2e-5, 2e-3), CosSched(2e-3, 2e-6), 15)"
     ],
     [
       "weight_decay",
