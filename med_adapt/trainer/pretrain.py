@@ -132,7 +132,7 @@ class PretrainTrainer(pl.LightningModule):
         image = batch["image"]
         return image
 
-    def _teacher_forward(self, volume: torch.Tensor, chunk_size: int = 8):
+    def _teacher_forward(self, volume: torch.Tensor, chunk_size: int = 16):
         b, c, h, w, d = volume.shape
         layer_outputs = (
             None  # list-of-lists: [layer][chunk] -> (cls_chunk, spatial_chunk)
@@ -188,14 +188,10 @@ class PretrainTrainer(pl.LightningModule):
         mask_up = None
 
         if mask is not None:
-            mask_3d = (
-                mask.unflatten(1, self.model.patch_embed.patches_resolution)
-                .unsqueeze(1)
-                .float()
-            )
-            mask_up = torch.repeat_interleave(mask_3d, self.model.patch_size[0], dim=2)
-            mask_up = torch.repeat_interleave(mask_up, self.model.patch_size[1], dim=3)
-            mask_up = torch.repeat_interleave(mask_up, self.model.patch_size[2], dim=4)
+            mask_3d = mask.unflatten(1, self.model.patch_embed.patches_resolution)
+            mask_up = torch.repeat_interleave(mask_3d, self.model.patch_size[0], dim=1)
+            mask_up = torch.repeat_interleave(mask_up, self.model.patch_size[1], dim=2)
+            mask_up = torch.repeat_interleave(mask_up, self.model.patch_size[2], dim=3)
 
         for (t_c, t_p), (s_c, s_p, *_) in zip(teacher_out, student_out):
             t_interp = F.interpolate(
@@ -217,12 +213,9 @@ class PretrainTrainer(pl.LightningModule):
                     2 - 2 * (t_pn * s_pn).sum(dim=1).mean(dim=(2, 3, 4)).mean()
                 )
             else:
-                # we only want loss where the original mask was 0 (dropped/masked-out)
-                loss_mask_tok = (1.0 - mask_3d).squeeze(1)  # (B, D', H', W')
-
                 cos_map = (t_pn * s_pn).sum(dim=1)  # (B, D', H', W')
-                masked_cos_sum = (cos_map * loss_mask_tok).sum(dim=(1, 2, 3))
-                num_masked_tok = loss_mask_tok.sum(dim=(1, 2, 3))
+                masked_cos_sum = (cos_map * mask_3d).sum(dim=(1, 2, 3))
+                num_masked_tok = mask_3d.sum(dim=(1, 2, 3))
                 has_masked_tok = num_masked_tok > 0
                 denom = num_masked_tok.clamp(min=1)
 
@@ -242,17 +235,19 @@ class PretrainTrainer(pl.LightningModule):
 
         if recon is not None and mask is not None:
             # loss_mask == 1 on dropped (masked) regions
-            loss_mask = 1.0 - mask_up
-            masked_recon = recon * loss_mask
-            masked_volume = volume * loss_mask
+            masked_recon = recon * mask_up
+            masked_volume = volume * mask_up
             # Per-element huber, then normalise per batch element by its
             # own masked voxel count, sum across the batch, and average.
             huber_per_elem = F.huber_loss(masked_recon, masked_volume, reduction="none")
 
-            num_masked = loss_mask.sum(dim=(1, 2, 3, 4))
+            num_masked = mask_up.sum(dim=(1, 2, 3))
             has_masked = num_masked > 0
             num_masked_denom = num_masked.clamp(min=1)
-            huber_per_elem = huber_per_elem.sum(dim=(1, 2, 3, 4)) / num_masked_denom
+
+            huber_per_elem = (
+                huber_per_elem.sum(dim=(2, 3, 4)).mean(dim=1) / num_masked_denom
+            )
             # Average only over samples that actually had masking applied
             n_masked_samples = has_masked.sum().clamp(min=1)
             huber = huber_per_elem.sum() / n_masked_samples

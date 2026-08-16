@@ -120,9 +120,9 @@ def build_pretrain_dataloaders(
     train_transforms=None,
     val_transforms=None,
 ):
-    from torch.utils.data import DataLoader
+    from torch.utils.data import DataLoader, RandomSampler
 
-    from med_adapt.datasets.sampler import UniformModalitySampler
+    # from med_adapt.datasets.sampler import UniformModalitySampler
 
     tr_ds = dataset_class(
         root=root,
@@ -131,9 +131,11 @@ def build_pretrain_dataloaders(
         transform=train_transforms,
     )
 
-    sampler = UniformModalitySampler(
-        tr_ds.df["modality"].tolist(), seed=sampler_seed, num_samples=num_train_samples
-    )
+    sampler = RandomSampler(tr_ds, replacement=False, num_samples=num_train_samples)
+
+    # sampler = UniformModalitySampler(
+    #     tr_ds.df["modality"].tolist(), seed=sampler_seed, num_samples=num_train_samples
+    # )
 
     tr_dl = DataLoader(
         tr_ds,
