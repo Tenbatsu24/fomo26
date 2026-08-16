@@ -4,6 +4,7 @@ from pathlib import Path
 from typing import Sequence, Union, Any
 
 import torch
+import numpy as np
 import lightning as pl
 import torch.nn.functional as F
 import torch.distributed as dist
@@ -34,7 +35,7 @@ def get_per_sample_range(low, high, *, batch_size):
 
     global_batch = batch_size * world_size
 
-    global_values = torch.linspace(
+    global_values = np.linspace(
         low,
         high,
         global_batch,
@@ -43,7 +44,7 @@ def get_per_sample_range(low, high, *, batch_size):
     start = rank * batch_size
     end = start + batch_size
 
-    return global_values[start:end]
+    return global_values[[start, end - 1]]
 
 
 class PretrainTrainer(pl.LightningModule):
