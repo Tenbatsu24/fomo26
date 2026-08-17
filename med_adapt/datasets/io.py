@@ -14,27 +14,58 @@ import numpy as np
 import nibabel as nib
 from scipy.ndimage import zoom
 
-# =============================================================================
-# Loading
-# =============================================================================
+
+def _percentile_zscore(
+    image: np.ndarray,
+    lower: float = 0.5,
+    upper: float = 99.5,
+):
+    """
+    Percentile clipping followed by z-score normalization.
+
+    Uses foreground voxels if available
+    (voxels > 0), otherwise falls back to all voxels.
+    """
+
+    image = image.astype(
+        np.float32,
+        copy=False,
+    )
+
+    values = image.reshape(-1)
+
+    lo = np.percentile(
+        values,
+        lower,
+    )
+
+    hi = np.percentile(
+        values,
+        upper,
+    )
+
+    image = np.clip(
+        image,
+        lo,
+        hi,
+    )
+
+    values = image.reshape(-1)
+
+    mean = values.mean()
+    std = values.std()
+
+    if std > 0:
+        image = (image - mean) / std
+    else:
+        image = image - mean
+
+    return image
 
 
 def load_nifti(
-    path: Path,
-    preprocess: bool = False,
+    path: Path, is_mask=False
 ) -> Tuple[np.ndarray, np.ndarray, Tuple[float, ...]]:
-    """Load a NIfTI file in canonical RAS+ orientation.
-
-    Args:
-        path: Path to the .nii.gz file.
-        preprocess: If True, clip to the 0.5–99.5 percentile range and
-            z-score normalize.
-
-    Returns:
-        (data, affine, spacing) where *data* is a 3D float32 array,
-        *affine* is the 4×4 affine matrix, and *spacing* is
-        (pixdim1, pixdim2, pixdim3) in mm.
-    """
     image = nib.load(str(path))
     image = nib.as_closest_canonical(image)
 
@@ -42,18 +73,8 @@ def load_nifti(
     affine = image.affine
     spacing = tuple(float(x) for x in image.header.get_zooms()[:3])
 
-    if preprocess:
-        lower = np.percentile(data, 0.5)
-        upper = np.percentile(data, 99.5)
-        data = np.clip(data, lower, upper)
-
-        mean = data.mean()
-        std = data.std()
-
-        if std > 0:
-            data = (data - mean) / std
-        else:
-            data = np.zeros_like(data)
+    if not is_mask:
+        data = _percentile_zscore(data)
 
     return data, affine, spacing
 
@@ -66,22 +87,16 @@ def load_nifti(
 def resample_nifti(
     path: Path,
     target_spacing: Tuple[float, float, float],
+    is_mask=False,
 ) -> Tuple[np.ndarray, np.ndarray, Tuple[float, ...]]:
-    """Load a NIfTI and resample it to *target_spacing*.
-
-    Intensity preprocessing is NOT applied — the caller decides when to
-    clip/normalize.
-    """
-    img = nib.load(str(path))
-    img_canon = nib.as_closest_canonical(img)
-    data = np.asarray(img_canon.get_fdata(dtype=np.float32))
-    affine = img_canon.affine
-    spacing = tuple(float(x) for x in img_canon.header.get_zooms()[:3])
+    data, affine, spacing = load_nifti(path, is_mask=is_mask)
 
     if spacing == target_spacing:
         return data, affine, spacing
 
-    resampled, new_affine = resample_volume(data, affine, target_spacing, spacing)
+    resampled, new_affine = resample_volume(
+        data, affine, target_spacing, spacing, 0 if is_mask else 3
+    )
     return resampled, new_affine, target_spacing
 
 
@@ -92,19 +107,6 @@ def resample_volume(
     current_spacing: Tuple[float, float, float],
     order: int = 1,
 ) -> Tuple[np.ndarray, np.ndarray]:
-    """Resample a 3D volume to *target_spacing* via affine remapping.
-
-    Args:
-        data: 3D array (H, W, D).
-        affine: 4×4 NIfTI affine matrix.
-        target_spacing: (pixdim1, pixdim2, pixdim3) in mm.
-        current_spacing: current (pixdim1, pixdim2, pixdim3) in mm.
-        order: interpolation order — use ``0`` for segmentation masks
-            (nearest-neighbor) and ``1`` for images (linear).
-
-    Returns:
-        (resampled_data, new_affine)
-    """
     scale = tuple(old / new for old, new in zip(current_spacing, target_spacing))
     resampled = zoom(data, scale, order=order)
 
@@ -115,34 +117,11 @@ def resample_volume(
     return resampled, new_affine
 
 
-# =============================================================================
-# Resizing (shape → shape)
-# =============================================================================
-
-
 def resize_volume(
-    data: np.ndarray,
-    target_shape: Tuple[int, int, int],
-    order: int = 1,
+    data: np.ndarray, target_shape: Tuple[int, int, int], is_mask: bool = False
 ) -> np.ndarray:
-    """Resize a 3D volume to *target_shape* via interpolation.
-
-    Args:
-        data: 3D array (H, W, D).
-        target_shape: (H, W, D) target voxel dimensions.
-        order: interpolation order — use ``0`` for segmentation masks
-            (nearest-neighbor) and ``1`` for images (linear).
-
-    Returns:
-        Resized array with shape *target_shape*.
-    """
     scale = tuple(t / c for t, c in zip(target_shape, data.shape))
-    return zoom(data, scale, order=order)
-
-
-# =============================================================================
-# Helpers
-# =============================================================================
+    return zoom(data, scale, order=0 if is_mask else 3)
 
 
 def ensure_3d(array: np.ndarray, path: Path) -> np.ndarray:

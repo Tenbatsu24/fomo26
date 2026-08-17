@@ -143,7 +143,7 @@ class ViT3D(ViTv2):
 
         return x
 
-    def forward(self, x, distill_from=-1, mask=None, **kwargs):
+    def forward(self, x, distill_from=-1, mask=None, return_dict=False, **kwargs):
         *_, h, w, d = x.shape
         lp = tuple(l // p for l, p in zip([h, w, d], self.patch_size))
 
@@ -168,9 +168,14 @@ class ViT3D(ViTv2):
                 outs.append((cls_token, patch_tokens))
 
         if self.use_patch_decode:
-            return outs, self.patch_decode(outs[-1][-1])
+            recon = self.patch_decode(outs[-1][-1])
+        else:
+            recon = None
 
-        return outs, None
+        if return_dict:
+            return {"latent": outs[-1][0], "patch_latent": outs[-1][1], "recon": recon}
+
+        return outs, recon
 
 
 def init_weights_vit_3d(module: nn.Module, name: str = "") -> None:

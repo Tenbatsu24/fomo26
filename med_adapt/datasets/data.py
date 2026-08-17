@@ -35,7 +35,6 @@ logger = get_logger(__name__)
 
 
 def set_seed(seed: int) -> None:
-    """Set random seeds for reproducible dataset splitting and visualization."""
     random.seed(seed)
     np.random.seed(seed)
     torch.manual_seed(seed)
@@ -47,20 +46,6 @@ def set_seed(seed: int) -> None:
 
 
 class MedicalTaskDataset(Dataset):
-    """
-    Base class for all task datasets.
-
-    Subclasses define:
-        FOLDER_NAME
-        TASK_NAME
-        TASK_TYPE
-        MODALITIES
-        NUM_MODALITIES
-        NUM_CLASSES
-        LABEL_FILENAME
-        MASK_FILENAME
-    """
-
     FOLDER_NAME: str = ""
     TASK_NAME: str = ""
     TASK_TYPE: str = ""
@@ -69,8 +54,8 @@ class MedicalTaskDataset(Dataset):
     NUM_MODALITIES: int = 0
     NUM_CLASSES: Optional[int] = None
 
-    LABEL_FILENAME: str = "label.txt"
-    MASK_FILENAME: str = "seg.nii.gz"
+    LABEL_FILENAME: Optional[str] = None
+    MASK_FILENAME: Optional[str] = None
 
     # Number of examples displayed in the gallery
     GALLERY_SIZE: int = 8
@@ -243,9 +228,7 @@ class MedicalTaskDataset(Dataset):
             session_dir = self._find_session_directory(subject_dir)
 
             image_paths = []
-
             for modality in self.MODALITIES:
-
                 path = session_dir / f"{modality}.nii.gz"
 
                 if not path.exists():
@@ -255,20 +238,7 @@ class MedicalTaskDataset(Dataset):
                     )
 
                 image_paths.append(path)
-
-            # ------------------------------------------------------------------
-            # Classification / Segmentation / Regression
-            # ------------------------------------------------------------------
-
             else:
-
-                # The labels directory mirrors the preprocessed directory.
-                #
-                # Example:
-                #
-                # Task_1/
-                # ├── labels/sub-01/ses-01/label.txt
-                # └── preprocessed/sub-01/ses-01/*.nii.gz
                 labels_root = self.task_dir / "labels"
 
                 matching_dirs = [
@@ -407,10 +377,7 @@ class MedicalTaskDataset(Dataset):
             if self.resample_spacing is not None:
                 image, _, _ = resample_nifti(image_path, self.resample_spacing)
             else:
-                image, _, _ = load_nifti(
-                    image_path,
-                    preprocess=False,
-                )
+                image, _, _ = load_nifti(image_path)
 
             image = ensure_3d(image, image_path)
 
@@ -419,8 +386,6 @@ class MedicalTaskDataset(Dataset):
 
             images.append(image)
 
-        # Shape:
-        #   [C, H, W, D]
         image = np.stack(images, axis=0)
 
         target = sample["label"]
@@ -430,22 +395,14 @@ class MedicalTaskDataset(Dataset):
             if self.resample_spacing is not None:
                 # Resample mask with nearest-neighbor to preserve label
                 # integrity (nnU-Net convention).
-                mask, affine, spacing = load_nifti(target)
-                mask, new_affine = resample_volume(
-                    mask,
-                    affine,
-                    self.resample_spacing,
-                    spacing,
-                    order=0,
-                )
-                target = mask
+                target = resample_nifti(target, self.resample_spacing, is_mask=True)
             else:
-                target, _, _ = load_nifti(target)
+                target, _, _ = load_nifti(target, is_mask=True)
 
             target = ensure_3d(target, sample["label"])
 
             if self.resize_to is not None:
-                target = resize_volume(target, self.resize_to, order=0)
+                target = resize_volume(target, self.resize_to, is_mask=True)
 
             target = torch.from_numpy(target.astype(np.int64)).unsqueeze(0)
 

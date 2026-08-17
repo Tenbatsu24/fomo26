@@ -100,7 +100,7 @@ def compute_statistics(
         sample_spacings = []
 
         for channel_index, image_path in enumerate(sample["image_paths"]):
-            image, _, spacing = load_nifti(image_path, preprocess=False)
+            image, _, spacing = load_nifti(image_path)
             image = ensure_3d(image, image_path)
 
             per_channel_mean[channel_index].append(float(np.mean(image)))
@@ -219,7 +219,7 @@ def save_histograms(
         sample_spacings = []
 
         for channel_index, image_path in enumerate(sample["image_paths"]):
-            image, _, spacing = load_nifti(image_path, preprocess=False)
+            image, _, spacing = load_nifti(image_path)
             image = ensure_3d(image, image_path)
 
             flat = image.ravel()

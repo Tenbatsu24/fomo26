@@ -273,7 +273,7 @@ class ViTv2(nn.Module):
 
         return x
 
-    def forward(self, x, distill_from=-1, **kwargs):
+    def forward(self, x, distill_from=-1, return_dict=False, **kwargs):
         *_, h, w = x.shape
         h_p, w_p = h // self.patch_size, w // self.patch_size
 
@@ -296,6 +296,9 @@ class ViTv2(nn.Module):
                 )
 
                 outs.append((cls_token, patch_tokens))
+
+        if return_dict:
+            return {"latent": outs[-1][0], "patch_latent": outs[-1][1]}
 
         return outs
 

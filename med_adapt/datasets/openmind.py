@@ -12,6 +12,7 @@ from torch.utils.data import Dataset
 from sklearn.model_selection import train_test_split
 
 from med_adapt.registry import register_dataset
+from med_adapt.datasets.io import _percentile_zscore
 
 
 @register_dataset("OpenMind")
@@ -88,54 +89,6 @@ class OpenNeuroDataset(Dataset):
 
         return Path(image_path)
 
-    @staticmethod
-    def _percentile_zscore(
-        image: np.ndarray,
-        lower: float = 0.5,
-        upper: float = 99.5,
-    ):
-        """
-        Percentile clipping followed by z-score normalization.
-
-        Uses foreground voxels if available
-        (voxels > 0), otherwise falls back to all voxels.
-        """
-
-        image = image.astype(
-            np.float32,
-            copy=False,
-        )
-
-        values = image.reshape(-1)
-
-        lo = np.percentile(
-            values,
-            lower,
-        )
-
-        hi = np.percentile(
-            values,
-            upper,
-        )
-
-        image = np.clip(
-            image,
-            lo,
-            hi,
-        )
-
-        values = image.reshape(-1)
-
-        mean = values.mean()
-        std = values.std()
-
-        if std > 0:
-            image = (image - mean) / std
-        else:
-            image = image - mean
-
-        return image
-
     def _load_image(
         self,
         path: Path,
@@ -157,7 +110,7 @@ class OpenNeuroDataset(Dataset):
             dtype=np.float32,
         )
 
-        image = self._percentile_zscore(
+        image = _percentile_zscore(
             image,
             lower=0.5,
             upper=99.5,
