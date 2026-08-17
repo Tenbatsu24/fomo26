@@ -19,16 +19,16 @@
   "data": {
     "dataset_name": "OpenMind",
     "crop_size": [
-      196,
-      196,
-      112
+      224,
+      224,
+      128
     ],
-    "batch_size": 4,
+    "batch_size": 2,
     "num_workers": 8,
     "num_samples": 1000
   },
-  "distill_from": -3,
-  "enable_aug": true,
+  "distill_from": -6,
+  "enable_aug": false,
   "optimizer": {
     "type": "AdamW",
     "params": {
@@ -53,23 +53,19 @@
     "strategy": "auto",
     "sync_batchnorm": false,
     "check_val_every_n_epoch": 1,
-    "limit_val_batches": 50,
+    "limit_val_batches": 10,
     "log_every_n_steps": 5
   },
   "scheduler": [
     [
       "lr",
-      "CatSched(LinSched(2e-5, 2e-3), CosSched(2e-3, 2e-6), 5)"
+      "CatSched(LinSched(1e-5, 1e-2), CosSched(1e-2, 1e-6), 0.05)"
     ],
     [
       "weight_decay",
       "CosSched(0.04, 0.40)"
-    ],
-    [
-      "rm_momentum",
-      "CatSched(CosSched(0.1, 0.0), ConstSched(0.0), 0.5)"
     ]
   ],
   "metrics": null,
-  "seed": 42
+  "seed": 244523
 }

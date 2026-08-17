@@ -168,7 +168,7 @@ def main():
     )
 
     model_dir = (
-        results_path / run_name / (wandb_logger.experiment.id or str(uuid.uuid4()))
+        Path(results_path) / run_name / "only_token_from_6"
     )
     print(model_dir)
 
