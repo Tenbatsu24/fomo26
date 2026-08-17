@@ -68,10 +68,6 @@ class PretrainTrainer(pl.LightningModule):
         self.model = model
         self.teacher_model = teacher_model
 
-        self.patch_stats_tracker = RunningNorm(
-            self.teacher_model.embed_dim, channel_dim=1, momentum=0.1
-        )
-
         self._load_pretrained()
 
         self.optims, self.scheduler = self.make_opt_sched()
@@ -202,10 +198,8 @@ class PretrainTrainer(pl.LightningModule):
             cls_chunks, spatial_chunks = zip(*chunks)
             # chunks were produced in increasing d_start order, so concatenating
             # along dim=-1 reconstructs the original depth ordering exactly.
-            spatial_full = self.patch_stats_tracker(torch.cat(spatial_chunks, dim=-1))
-            cls_full = self.patch_stats_tracker.normalize(
-                torch.cat(cls_chunks, dim=-1)
-            ).mean(dim=-1)
+            spatial_full = torch.cat(spatial_chunks, dim=-1)
+            cls_full = torch.cat(cls_chunks, dim=-1).mean(dim=-1)
             outputs.append((cls_full, spatial_full))
 
         return outputs
@@ -258,7 +252,8 @@ class PretrainTrainer(pl.LightningModule):
                 token_total += token_loss_per_sample.sum() / n_masked_samples
 
         loss_dict = {
-            "loss": (0.2 * cls_total + 0.8 * token_total) / n,
+            "loss": (0.1 * cls_total + 0.9 * token_total) / n,
+            # "loss": token_total / n,
             "cls_cos": cls_total / n,
             "token_cos": token_total / n,
         }
