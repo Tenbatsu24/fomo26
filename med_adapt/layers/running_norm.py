@@ -64,7 +64,7 @@ class RunningNorm(nn.Module):
         mean = mean.view(shape)
         var = var.view(shape)
 
-        return (x - mean) / torch.sqrt(var + self.eps)
+        return (x - mean) * torch.rsqrt(var + self.eps)
 
     def normalize(self, x):
         shape = [1] * x.ndim

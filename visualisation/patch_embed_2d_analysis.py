@@ -526,6 +526,7 @@ def _save_kernel_slices(weight: np.ndarray, out: Path) -> None:
         "Per-Input-Channel Kernel Statistics  (mean & std across output channels)",
         fontsize=13,
         fontweight="bold",
+        y=0.98,
     )
     for c in range(C):
         ax_mean = axes[c * 2]

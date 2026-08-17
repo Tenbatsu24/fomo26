@@ -14,6 +14,7 @@ from loguru import logger
 from lightning import Callback
 from ml_collections import ConfigDict
 
+from med_adapt.layers import RunningNorm
 from med_adapt.utils import get_models_path
 from med_adapt.augs import default_disable_aug
 from med_adapt.utils.masking import generate_masks
@@ -66,6 +67,9 @@ class PretrainTrainer(pl.LightningModule):
 
         self.model = model
         self.teacher_model = teacher_model
+        self.running_norm = RunningNorm(
+            self.teacher_model.embed_dim, channel_dim=1, momentum=0.01, eps=1e-6
+        )
 
         self._load_pretrained()
 
@@ -142,7 +146,7 @@ class PretrainTrainer(pl.LightningModule):
                     )
             if key == "rm_momentum":
                 scheduler.add(
-                    self.patch_stats_tracker,
+                    self.running_norm,
                     "momentum",
                     Schedule.parse(sched),
                     helpful_name=key,
@@ -158,6 +162,32 @@ class PretrainTrainer(pl.LightningModule):
 
         image = batch["image"]
         return image
+
+    def rescale_affinity(self, spatial_affinity):
+        lo = torch.quantile(
+            spatial_affinity.flatten(1),
+            0.01,
+            dim=1,
+            keepdim=True,
+        ).view(-1, 1, 1, 1)
+
+        hi = torch.quantile(
+            spatial_affinity.flatten(1),
+            0.99,
+            dim=1,
+            keepdim=True,
+        ).view(-1, 1, 1, 1)
+
+        # Scale using percentile range
+        denom = hi - lo
+
+        spatial_affinity = torch.where(
+            denom > 0,
+            2.0 * ((spatial_affinity - lo) / denom) - 1.0,
+            torch.zeros_like(spatial_affinity),
+        )
+
+        return spatial_affinity.clamp(-1.0, 1.0)
 
     def _teacher_forward(self, volume: torch.Tensor, chunk_size: int = 16):
         b, c, h, w, d = volume.shape
@@ -222,9 +252,10 @@ class PretrainTrainer(pl.LightningModule):
                 eps=1e-6,
             )
             spatial_affinity = rearrange(
-                spatial_affinity, "(b d) (h_p w_p) -> b 1 h_p w_p d", d=d, h_p=h_p
+                spatial_affinity, "(b d) (h_p w_p) -> b h_p w_p d", d=d, h_p=h_p
             )
-            outputs.append((spatial_affinity, spatial_full))
+            spatial_affinity = self.rescale_affinity(spatial_affinity).unsqueeze(1)
+            outputs.append((spatial_affinity, self.running_norm(spatial_full)))
 
         return outputs
 

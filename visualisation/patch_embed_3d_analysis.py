@@ -163,7 +163,7 @@ def _show_kernel_slices(
         rows, cols, figsize=(cols * 5 + 1, rows * 4), dpi=150, constrained_layout=True
     )
     axes = np.asarray(axes).reshape(-1)
-    fig.suptitle(title, fontsize=13, fontweight="bold")
+    fig.suptitle(title, fontsize=13, fontweight="bold", y=0.98)
 
     for i in range(min(n, rows * cols // 3)):
         k = sub[i]  # [C, pz, py, px]

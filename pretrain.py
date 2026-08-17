@@ -32,7 +32,7 @@ from med_adapt.trainer import PretrainTrainer
 
 logger = get_logger(__name__)
 
-torch.set_float32_matmul_precision('medium')
+torch.set_float32_matmul_precision("medium")
 
 
 def check_monitor_top_k(self, trainer, current=None):
@@ -165,9 +165,7 @@ def main():
 
     lr_monitor = LearningRateMonitor(logging_interval="step")
     # csv_logger = CSVLogger(results_path, name=f"{run_name}")
-    wandb_logger = WandbLogger(
-        run_name, save_dir=results_path, project="fomo26"
-    )
+    wandb_logger = WandbLogger(run_name, save_dir=results_path, project="fomo26")
 
     model_dir = Path(results_path) / run_name / "cls-aff_patch-cos"
     print(model_dir)

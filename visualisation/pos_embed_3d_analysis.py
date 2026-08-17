@@ -236,7 +236,10 @@ def analyse_3d_pos_embed(
     )
     axes_d = np.asarray(axes_d).reshape(-1)
     fig.suptitle(
-        "First 8 Embedding Dimensions — 3-D Grid Slices", fontsize=13, fontweight="bold"
+        "First 8 Embedding Dimensions — 3-D Grid Slices",
+        fontsize=13,
+        fontweight="bold",
+        y=0.98,
     )
     mid = H // 2
     # Global vmin/vmax across all displayed dimensions

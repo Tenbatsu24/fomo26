@@ -367,7 +367,10 @@ def _save_dim_grid(patch_pos: torch.Tensor, grid_size: int, out: Path) -> None:
     )
     axes = np.asarray(axes).reshape(-1)
     fig.suptitle(
-        "First 8 Embedding Dimensions — Spatial Layout", fontsize=13, fontweight="bold"
+        "First 8 Embedding Dimensions — Spatial Layout",
+        fontsize=13,
+        fontweight="bold",
+        y=0.98,
     )
     # Determine global vmin/vmax across all dimensions for a single colour bar
     all_vals = grid[:, :, :n_dims].reshape(-1, n_dims)
