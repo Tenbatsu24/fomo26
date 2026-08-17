@@ -237,12 +237,15 @@ class PretrainTrainer(pl.LightningModule):
         # Build voxel-space keep mask once when masking is active, so both
         # cls and token cosine terms share the same spatial weighting.
         mask_bool = None
+        mask_3d = None
 
         if mask is not None:
-            mask_up = mask.unflatten(1, self.model.patch_embed.patches_resolution)
-            mask_up = torch.repeat_interleave(mask_up, self.model.patch_size[0], dim=1)
+            mask_3d = mask.unflatten(1, self.model.patch_embed.patches_resolution)
+            mask_up = torch.repeat_interleave(mask_3d, self.model.patch_size[0], dim=1)
             mask_up = torch.repeat_interleave(mask_up, self.model.patch_size[1], dim=2)
             mask_up = torch.repeat_interleave(mask_up, self.model.patch_size[2], dim=3)
+
+            mask_3d = mask_3d.bool()
             mask_bool = mask_up.bool()
 
         for (t_aff, t_patch), (s_cls, s_patch) in zip(teacher_out, student_out):
@@ -257,32 +260,37 @@ class PretrainTrainer(pl.LightningModule):
                 size=(s_patch.shape[2], s_patch.shape[3], s_patch.shape[4]),
                 mode="trilinear",
                 align_corners=False,
-            ).squeeze(0)
+            ).squeeze(1)
 
             s_aff = F.cosine_similarity(
                 s_patch, s_cls[..., None, None, None], dim=1, eps=1e-6
             )
 
-            affinity_total += (t_aff_interp - s_aff).square().mean()
+            affinity_matrix = (t_aff_interp - s_aff).square()
             t_pn, s_pn = F.normalize(t_patch_interp, p=2, eps=1e-6, dim=1), F.normalize(
                 s_patch, p=2, eps=1e-6, dim=1
             )
+            cos_map = (t_pn * s_pn).sum(dim=1)  # (B, D', H', W')
 
-            # if (mask_3d is None) or True:
-            token_total += 2 - 2 * (t_pn * s_pn).sum(dim=1).mean(dim=(1, 2, 3)).mean()
-            # else:
-            #     cos_map = (t_pn * s_pn).sum(dim=1)  # (B, D', H', W')
-            #     masked_cos_sum = (cos_map * mask_3d).sum(dim=(1, 2, 3))
-            #     num_masked_tok = mask_3d.sum(dim=(1, 2, 3))
-            #     has_masked_tok = num_masked_tok > 0
-            #     denom = num_masked_tok.clamp(min=1)
-            #
-            #     token_loss_per_sample = 2 - 2 * (masked_cos_sum / denom)
-            #     n_masked_samples = has_masked_tok.sum().clamp(min=1)
-            #     token_total += token_loss_per_sample.sum() / n_masked_samples
+            if mask_3d is None:
+                token_total += 2 - 2 * cos_map.mean(dim=(1, 2, 3)).mean()
+                affinity_total += affinity_matrix.mean(dim=(1, 2, 3)).mean()
+            else:
+                num_masked_tok = mask_3d.sum(dim=(1, 2, 3))
+                has_masked_tok = num_masked_tok > 0
+                denom = num_masked_tok.clamp(min=1)
+                n_masked_samples = has_masked_tok.sum().clamp(min=1)
+
+                masked_cos_sum = (cos_map * mask_3d).sum(dim=(1, 2, 3))
+                token_loss_per_sample = 2 - 2 * (masked_cos_sum / denom)
+                token_total += token_loss_per_sample.sum() / n_masked_samples
+
+                affinity_sum = (affinity_matrix * mask_3d).sum(dim=(1, 2, 3))
+                affinity_loss_per_sample = affinity_sum / denom
+                affinity_total += affinity_loss_per_sample.sum() / n_masked_samples
 
         loss_dict = {
-            "loss": 0.5 * (affinity_total + token_total) / n,
+            "loss": (affinity_total + token_total) / n,
             "affinity_l2": affinity_total / n,
             "token_cos": token_total / n,
         }

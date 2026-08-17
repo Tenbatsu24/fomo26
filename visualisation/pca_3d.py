@@ -246,9 +246,7 @@ def plot_volume_pca_3d(
     rows = int(np.ceil(n / cols))
 
     # --- PCA-RGB panel ------------------------------------------------------
-    fig_pca, axes_pca = plt.subplots(
-        rows, cols, figsize=(cols * 4.5, rows * 4.5), dpi=150
-    )
+    fig_pca, axes_pca = plt.subplots(rows, cols, figsize=(cols * 5, rows * 4), dpi=150)
     axes_pca = np.asarray(axes_pca).reshape(-1)
     fig_pca.suptitle(
         "3-D ViT: Full-Volume Patch-Token PCA (whitened) per patch-depth slice",
@@ -270,7 +268,7 @@ def plot_volume_pca_3d(
 
     # --- Cosine panel (single colour bar) -----------------------------------
     fig_cos, axes_cos = plt.subplots(
-        rows, cols, figsize=(cols * 4.5, rows * 4.5), dpi=150
+        rows, cols, figsize=(cols * 5 + 1, rows * 4), dpi=150, constrained_layout=True
     )
     axes_cos = np.asarray(axes_cos).reshape(-1)
     fig_cos.suptitle(
@@ -314,7 +312,11 @@ def plot_volume_pca_3d(
         rec_cols = 3 * n_channels
 
         fig_rec, axes_rec = plt.subplots(
-            rec_rows, rec_cols, figsize=(rec_cols * 3.5, rec_rows * 3.5), dpi=150
+            rec_rows,
+            rec_cols,
+            figsize=(rec_cols * 5 + 1, rec_rows * 4),
+            dpi=150,
+            constrained_layout=True,
         )
         axes_rec = np.asarray(axes_rec).reshape(rec_rows, rec_cols)
         fig_rec.suptitle(

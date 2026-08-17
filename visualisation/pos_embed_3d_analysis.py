@@ -20,7 +20,7 @@ import numpy as np
 import torch
 from torch.nn.functional import cosine_similarity
 
-from visualisation.utils import colorbar, save_figure
+from visualisation.utils import colorbar
 
 DEFAULT_OUTPUT_DIR = Path(__file__).resolve().parents[1] / "understand" / "pos_embed_3d"
 
@@ -102,7 +102,7 @@ def analyse_3d_pos_embed(
         rad_std.append(norms[mask].std())
 
     # --- Build figure --------------------------------------------------------
-    fig, axes = plt.subplots(2, 3, figsize=(18, 12), dpi=150)
+    fig, axes = plt.subplots(2, 3, figsize=(16, 10), dpi=150, constrained_layout=True)
     fig.suptitle(
         "3-D ViT Position Embedding Analysis  —  "
         f"{H}×{H}×{H} patch grid  ·  embed_dim={grid.shape[-1]}",
@@ -222,7 +222,6 @@ def analyse_3d_pos_embed(
             fontsize=9,
         )
 
-    plt.tight_layout(rect=[0, 0, 1, 0.94])
     out_path = output_dir / "pos_embed_3d_analysis.png"
     fig.savefig(out_path, bbox_inches="tight")
     plt.close(fig)
@@ -232,7 +231,9 @@ def analyse_3d_pos_embed(
     n_dims = min(8, grid.shape[-1])
     cols = 4
     rows = int(np.ceil(n_dims / cols))
-    fig, axes_d = plt.subplots(rows, cols, figsize=(cols * 3.5, rows * 3.5), dpi=150)
+    fig, axes_d = plt.subplots(
+        rows, cols, figsize=(cols * 5 + 1, rows * 4), dpi=150, constrained_layout=True
+    )
     axes_d = np.asarray(axes_d).reshape(-1)
     fig.suptitle(
         "First 8 Embedding Dimensions — 3-D Grid Slices", fontsize=13, fontweight="bold"
@@ -270,7 +271,6 @@ def analyse_3d_pos_embed(
     fig.colorbar(im, ax=axes_d.tolist(), shrink=0.8, label="value")
     for j in range(n_dims, len(axes_d)):
         axes_d[j].set_visible(False)
-    plt.tight_layout(rect=[0, 0, 1, 0.96])
     out_path2 = output_dir / "pos_embed_3d_first_dims.png"
     fig.savefig(out_path2, bbox_inches="tight")
     plt.close(fig)

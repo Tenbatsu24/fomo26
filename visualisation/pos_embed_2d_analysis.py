@@ -30,7 +30,7 @@ import numpy as np
 import torch
 from sklearn.decomposition import PCA
 
-from visualisation.utils import colorbar, save_figure
+from visualisation.utils import colorbar
 
 DEFAULT_OUTPUT_DIR = Path(__file__).resolve().parents[1] / "understand" / "pos_embed_2d"
 
@@ -186,7 +186,7 @@ def plot_pos_embed(
     explained_ratio = pca.explained_variance_ratio_
 
     # --- Build figure --------------------------------------------------------
-    fig, axes = plt.subplots(2, 3, figsize=(18, 12), dpi=150)
+    fig, axes = plt.subplots(2, 3, figsize=(16, 10), dpi=150, constrained_layout=True)
     fig.suptitle(
         "ViT Position Embedding Analysis  —  "
         f"{grid_size}×{grid_size} patch grid  ·  embed_dim={grid_np.shape[-1]}",
@@ -339,7 +339,6 @@ def plot_pos_embed(
             fontsize=9,
         )
 
-    plt.tight_layout(rect=[0, 0, 1, 0.94])
     out_path = output_dir / "pos_embed_analysis.png"
     fig.savefig(out_path, bbox_inches="tight")
     plt.close(fig)
@@ -363,7 +362,9 @@ def _save_dim_grid(patch_pos: torch.Tensor, grid_size: int, out: Path) -> None:
     n_dims = min(8, grid.shape[-1])
     cols = 4
     rows = int(np.ceil(n_dims / cols))
-    fig, axes = plt.subplots(rows, cols, figsize=(14, 3 * rows), dpi=150)
+    fig, axes = plt.subplots(
+        rows, cols, figsize=(cols * 5 + 1, rows * 4), dpi=150, constrained_layout=True
+    )
     axes = np.asarray(axes).reshape(-1)
     fig.suptitle(
         "First 8 Embedding Dimensions — Spatial Layout", fontsize=13, fontweight="bold"
@@ -391,7 +392,6 @@ def _save_dim_grid(patch_pos: torch.Tensor, grid_size: int, out: Path) -> None:
     fig.colorbar(im, ax=axes.tolist(), shrink=0.8, label="value")
     for j in range(n_dims, len(axes)):
         axes[j].set_visible(False)
-    plt.tight_layout()
     out_path = out / "pos_embed_first_dims.png"
     fig.savefig(out_path, bbox_inches="tight")
     plt.close(fig)
@@ -411,13 +411,12 @@ def _save_distance_heatmap(patch_pos: torch.Tensor, grid_size: int, out: Path) -
     sim = cosine_similarity(t.unsqueeze(1), t.unsqueeze(0))
     dist = 1 - sim.numpy()
 
-    fig, ax = plt.subplots(figsize=(7, 6), dpi=150)
+    fig, ax = plt.subplots(figsize=(6, 5), dpi=150, constrained_layout=True)
     im = ax.imshow(dist, cmap="coolwarm", vmin=0, vmax=0.5, aspect="equal")
     ax.set_title(f"Pairwise Cosine Distance  ({crop}×{crop} central crop)", fontsize=12)
     ax.set_xlabel("patch index (flattened)")
     ax.set_ylabel("patch index (flattened)")
     fig.colorbar(im, ax=ax, label="1 − cos_sim", shrink=0.8)
-    plt.tight_layout()
     out_path = out / "pos_embed_distance_heatmap.png"
     fig.savefig(out_path, bbox_inches="tight")
     plt.close(fig)

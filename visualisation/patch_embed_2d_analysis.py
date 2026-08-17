@@ -1,22 +1,3 @@
-"""Visualise the learned patch-embedding Conv2d weights and bias (2-D ViT).
-
-The patch embedding (`patch_embed.proj`) in a ViT is a convolution that
-maps an input patch ``(C, ps, ps)`` to an embedding vector of dimension
-``embed_dim``.  This module loads a checkpoint, extracts the convolution
-kernel and bias, and produces a set of plots that answer the question:
-*what kind of spatial filters has patch_embed learnt?*
-
-Typical hypotheses tested here:
-  1. **Gabor-like / edge detectors** — kernels have oriented bar or
-     edge patterns, common in early vision layers.
-  2. **Color-contrast kernels** — kernels show sign differences across
-     input channels (e.g. R−G, B−(R+G)).
-  3. **Blob / center-surround** — radially symmetric excitation /
-     inhibition patterns.
-  4. **Uniform / low-rank** — many kernels are nearly identical or
-     close to zero (under-utilised output channels).
-"""
-
 from __future__ import annotations
 
 import argparse
@@ -32,7 +13,7 @@ import matplotlib.colors as mcolors
 import numpy as np
 import torch
 
-from visualisation.utils import colorbar, fig_kw, save_figure
+from visualisation.utils import colorbar
 
 DEFAULT_OUTPUT_DIR = (
     Path(__file__).resolve().parents[1] / "understand" / "patch_embed_2d"
@@ -45,13 +26,6 @@ DEFAULT_OUTPUT_DIR = (
 
 
 def load_patch_embed(checkpoint_path: Path | str) -> tuple[torch.Tensor, torch.Tensor]:
-    """Load patch_embed weights and bias from a ViT checkpoint.
-
-    Returns
-    -------
-    weight : torch.Tensor  shape [embed_dim, in_chans, ps, ps]
-    bias   : torch.Tensor  shape [embed_dim]
-    """
     ckpt = torch.load(checkpoint_path, map_location="cpu")
     weight = ckpt["patch_embed.proj.weight"]  # [E, C, ps, ps]
     bias = ckpt["patch_embed.proj.bias"]  # [E]
@@ -68,24 +42,20 @@ def to_numpy(weight: torch.Tensor, bias: torch.Tensor) -> tuple[np.ndarray, np.n
 
 
 def kernel_l2_norms(weight: np.ndarray) -> np.ndarray:
-    """L2 norm of each output-channel kernel → [embed_dim]."""
     flat = weight.reshape(weight.shape[0], -1)
     return np.linalg.norm(flat, axis=1)
 
 
 def kernel_l1_norms(weight: np.ndarray) -> np.ndarray:
-    """L1 norm (sum of absolute values) of each kernel → [embed_dim]."""
     return np.abs(weight).reshape(weight.shape[0], -1).sum(axis=1)
 
 
 def kernel_sparsity(weight: np.ndarray, threshold: float = 1e-4) -> np.ndarray:
-    """Fraction of near-zero entries per kernel → [embed_dim]."""
     flat = weight.reshape(weight.shape[0], -1)
     return (np.abs(flat) < threshold).mean(axis=1)
 
 
 def per_channel_norms(weight: np.ndarray) -> np.ndarray:
-    """Mean kernel norm contributed by each input channel → [in_chans]."""
     E, C, H, W = weight.shape
     channel_norms = np.linalg.norm(weight.transpose(1, 0, 2, 3).reshape(C, -1), axis=1)
     return channel_norms / E
@@ -109,7 +79,6 @@ def bias_statistics(bias: np.ndarray) -> dict[str, float]:
 
 
 def neighbor_kernel_similarity(weight: np.ndarray) -> dict[str, float]:
-    """Mean cosine similarity between adjacent output-channel kernels."""
     flat = weight.reshape(weight.shape[0], -1).astype(np.float32)
     norms = np.linalg.norm(flat, axis=1)
     cos_sim = flat @ flat.T / (norms[:, None] * norms[None, :] + 1e-8)
@@ -122,20 +91,17 @@ def neighbor_kernel_similarity(weight: np.ndarray) -> dict[str, float]:
 
 
 def layer_spectral_norm(weight: np.ndarray) -> float:
-    """Largest singular value of the full [embed_dim, C·ps·ps] weight matrix."""
     flat = weight.reshape(weight.shape[0], -1)
     s = np.linalg.svd(flat, compute_uv=False, full_matrices=False)
     return float(s[0])
 
 
 def singular_value_spectrum(weight: np.ndarray) -> np.ndarray:
-    """All singular values of the flattened weight matrix, sorted descending."""
     flat = weight.reshape(weight.shape[0], -1)
     return np.linalg.svd(flat, compute_uv=False, full_matrices=False)
 
 
 def spectral_condition_number(weight: np.ndarray) -> float:
-    """Ratio of largest to smallest singular value."""
     sv = singular_value_spectrum(weight)
     return float(sv[0] / (sv[-1] + 1e-12))
 
@@ -143,7 +109,6 @@ def spectral_condition_number(weight: np.ndarray) -> float:
 def spectral_energy_fraction(
     weight: np.ndarray, cumsum_thresh: float = 0.95
 ) -> tuple[int, float]:
-    """Number of singular values needed to capture *cumsum_thresh* of total energy."""
     sv = singular_value_spectrum(weight)
     sv2 = sv**2
     cumsum = np.cumsum(sv2) / sv2.sum()
@@ -152,7 +117,6 @@ def spectral_energy_fraction(
 
 
 def kernel_orientation(weight: np.ndarray) -> np.ndarray:
-    """Dominant orientation angle (in degrees) of each kernel."""
     E, C, H, W = weight.shape
     angles = np.zeros(E)
     for e in range(E):
@@ -174,12 +138,11 @@ def kernel_orientation(weight: np.ndarray) -> np.ndarray:
 def _show_kernel_grid(
     weight: np.ndarray, start: int, n: int, title: str, cmap: str = "coolwarm"
 ) -> plt.Figure:
-    """Return a figure displaying *n* kernels starting at *start* in a grid."""
     rows = math.ceil(n**0.5)
     cols = math.ceil(n / rows)
     sub = weight[start : start + n]  # [n, C, ps, ps]
 
-    fig, axes = plt.subplots(rows, cols, figsize=(cols * 2.5, rows * 2.5), dpi=150)
+    fig, axes = plt.subplots(rows, cols, figsize=(cols * 5, rows * 4), dpi=150)
     axes = np.asarray(axes).reshape(-1)
     fig.suptitle(title, fontsize=13, fontweight="bold")
 
@@ -215,16 +178,10 @@ def _show_kernel_grid(
     return fig
 
 
-# ---------------------------------------------------------------------------
-# Main visualisation
-# ---------------------------------------------------------------------------
-
-
 def plot_patch_embed(
     checkpoint_path: Path | str,
     output_dir: Path | str = DEFAULT_OUTPUT_DIR,
 ) -> Path:
-    """Generate all patch-embedding visualisations and save to *output_dir*."""
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
 
@@ -248,8 +205,6 @@ def plot_patch_embed(
     orientations = kernel_orientation(weight_np)
 
     # --- Build composite figure ----------------------------------------------
-    import warnings
-
     with warnings.catch_warnings():
         warnings.filterwarnings("ignore", message=".*imshow.*RGB.*")
         _build_composite(
@@ -342,7 +297,7 @@ def _build_composite(
     ps: int,
 ) -> None:
     """Build and save the 3×3 composite analysis figure."""
-    fig, axes = plt.subplots(3, 3, figsize=(18, 18), dpi=150)
+    fig, axes = plt.subplots(3, 3, figsize=(16, 13), dpi=150, constrained_layout=True)
     fig.suptitle(
         "ViT Patch Embedding Analysis  —  "
         f"Conv[{C}→{E}, ks={ps}×{ps}]  ·  σ₁ = {layer_spec:.3f}  ·  κ = {cond_num:.0f}",
@@ -539,7 +494,6 @@ def _build_composite(
     )
     ax2.set_ylabel("")
 
-    plt.tight_layout(rect=[0, 0, 1, 0.94])
     out_path = output_dir / "patch_embed_analysis.png"
     fig.savefig(out_path, bbox_inches="tight")
     plt.close(fig)
@@ -560,7 +514,13 @@ def _save_kernel_slices(weight: np.ndarray, out: Path) -> None:
     n = C
     cols = 3
     rows = math.ceil(n / cols)
-    fig, axes = plt.subplots(rows, cols * 2, figsize=(cols * 2 * 4, rows * 4), dpi=150)
+    fig, axes = plt.subplots(
+        rows,
+        cols * 2,
+        figsize=(cols * 2 * 5 + 1, rows * 4),
+        dpi=150,
+        constrained_layout=True,
+    )
     axes = np.asarray(axes).reshape(-1)
     fig.suptitle(
         "Per-Input-Channel Kernel Statistics  (mean & std across output channels)",
@@ -587,7 +547,6 @@ def _save_kernel_slices(weight: np.ndarray, out: Path) -> None:
 
     for j in range(C * 2, len(axes)):
         axes[j].set_visible(False)
-    plt.tight_layout()
     out_path = out / "patch_embed_per_channel_slices.png"
     fig.savefig(out_path, bbox_inches="tight")
     plt.close(fig)
@@ -596,7 +555,7 @@ def _save_kernel_slices(weight: np.ndarray, out: Path) -> None:
 
 def _save_orientation_histogram(orientations: np.ndarray, out: Path) -> None:
     """Histogram of dominant kernel orientations."""
-    fig, ax = plt.subplots(figsize=(8, 5), dpi=150)
+    fig, ax = plt.subplots(figsize=(5, 4), dpi=150)
     ax.hist(
         orientations,
         bins=36,
@@ -626,7 +585,7 @@ def _save_orientation_histogram(orientations: np.ndarray, out: Path) -> None:
 
 def _save_bias_detail(bias: np.ndarray, out: Path) -> None:
     """Detailed bias analysis: rolling mean, rolling std, and rank plot."""
-    fig, axes = plt.subplots(2, 2, figsize=(14, 8), dpi=150)
+    fig, axes = plt.subplots(2, 2, figsize=(10, 8), dpi=150)
     fig.suptitle("Bias Detail Analysis", fontsize=13, fontweight="bold")
 
     # Rolling statistics
@@ -704,7 +663,7 @@ def _save_singular_value_plot(
     out: Path,
 ) -> None:
     """Spectral analysis: scree plot, cumulative energy, and density."""
-    fig, axes = plt.subplots(1, 3, figsize=(18, 5), dpi=150)
+    fig, axes = plt.subplots(1, 3, figsize=(15, 4), dpi=150)
     fig.suptitle(
         f"Patch Embed Spectral Analysis  —  σ₁ = {layer_spec:.3f}  ·  κ = {cond_num:.0f}  ·  "
         f"n={len(sv_spectrum)} singular values",

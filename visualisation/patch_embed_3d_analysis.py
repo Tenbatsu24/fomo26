@@ -20,7 +20,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import torch
 
-from visualisation.utils import colorbar, save_figure
+from visualisation.utils import colorbar
 
 DEFAULT_OUTPUT_DIR = (
     Path(__file__).resolve().parents[1] / "understand" / "patch_embed_3d"
@@ -159,7 +159,9 @@ def _show_kernel_slices(
     cols = 3 * math.ceil(n / rows)  # 3 views per kernel
     sub = weight[start : start + n]
 
-    fig, axes = plt.subplots(rows, cols, figsize=(cols * 1.8, rows * 2), dpi=150)
+    fig, axes = plt.subplots(
+        rows, cols, figsize=(cols * 5 + 1, rows * 4), dpi=150, constrained_layout=True
+    )
     axes = np.asarray(axes).reshape(-1)
     fig.suptitle(title, fontsize=13, fontweight="bold")
 
@@ -184,7 +186,6 @@ def _show_kernel_slices(
 
     for j in range(min(n, rows * cols // 3) * 3, len(axes)):
         axes[j].set_visible(False)
-    plt.tight_layout()
     return fig
 
 
@@ -220,7 +221,7 @@ def plot_patch_embed_3d(
     n_eff_90, frac_90 = spectral_energy_fraction(weight_np, cumsum_thresh=0.90)
 
     # --- Build composite figure ----------------------------------------------
-    fig, axes = plt.subplots(2, 3, figsize=(18, 12), dpi=150)
+    fig, axes = plt.subplots(2, 3, figsize=(16, 10), dpi=150)
     fig.suptitle(
         "3-D ViT Patch Embedding Analysis  —  "
         f"Conv3d[{C}→{E}, ks={pz}×{py}×{px}]  ·  σ₁ = {layer_spec:.3f}  ·  κ = {cond_num:.0f}",
@@ -403,7 +404,7 @@ def _save_sv_plot(
     out: Path,
 ) -> None:
     """Spectral analysis: scree plot and cumulative energy."""
-    fig, axes = plt.subplots(1, 2, figsize=(14, 5), dpi=150)
+    fig, axes = plt.subplots(1, 2, figsize=(10, 4), dpi=150)
     fig.suptitle(
         f"3-D Patch Embed Spectral Analysis  —  σ₁ = {layer_spec:.3f}  ·  κ = {cond_num:.0f}",
         fontsize=13,

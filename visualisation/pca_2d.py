@@ -192,9 +192,7 @@ def plot_volume_pca(
     cols = int(np.ceil(np.sqrt(n)))
     rows = int(np.ceil(n / cols))
 
-    fig_pca, axes_pca = plt.subplots(
-        rows, cols, figsize=(cols * 4.5, rows * 4.5), dpi=150
-    )
+    fig_pca, axes_pca = plt.subplots(rows, cols, figsize=(cols * 5, rows * 4), dpi=150)
     axes_pca = np.asarray(axes_pca).reshape(-1)
     fig_pca.suptitle(
         "2-D ViT: Full-Volume Patch-Token PCA (whitened) per depth slice",
@@ -219,7 +217,7 @@ def plot_volume_pca(
 
     # --- Build composite figure (cosine-sim panel, single colour bar) --------
     fig_cos, axes_cos = plt.subplots(
-        rows, cols, figsize=(cols * 4.5, rows * 4.5), dpi=150
+        rows, cols, figsize=(cols * 5 + 1, rows * 4), dpi=150, constrained_layout=True
     )
     axes_cos = np.asarray(axes_cos).reshape(-1)
     fig_cos.suptitle(
