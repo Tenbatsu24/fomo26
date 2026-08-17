@@ -167,9 +167,7 @@ def main():
         run_name, save_dir=results_path, project="fomo26", log_model="all"
     )
 
-    model_dir = (
-        Path(results_path) / run_name / "only_token_from_6"
-    )
+    model_dir = Path(results_path) / run_name / "only_token_from_6"
     print(model_dir)
 
     checkpoint_callback = ModelCheckpoint(

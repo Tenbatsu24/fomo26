@@ -9,12 +9,11 @@ import lightning as pl
 import torch.nn.functional as F
 import torch.distributed as dist
 
-from einops import rearrange
+from einops import rearrange, repeat
 from loguru import logger
 from lightning import Callback
 from ml_collections import ConfigDict
 
-from med_adapt.layers import RunningNorm
 from med_adapt.utils import get_models_path
 from med_adapt.augs import default_disable_aug
 from med_adapt.utils.masking import generate_masks
@@ -194,88 +193,118 @@ class PretrainTrainer(pl.LightningModule):
                 layer_outputs[layer_idx].append((cls_token, spatial))
 
         outputs = []
+
         for chunks in layer_outputs:
             cls_chunks, spatial_chunks = zip(*chunks)
-            # chunks were produced in increasing d_start order, so concatenating
-            # along dim=-1 reconstructs the original depth ordering exactly.
-            spatial_full = torch.cat(spatial_chunks, dim=-1)
-            cls_full = torch.cat(cls_chunks, dim=-1).mean(dim=-1)
-            outputs.append((cls_full, spatial_full))
+            spatial_full = torch.cat(spatial_chunks, dim=-1)  # [b c h_p w_p d]
+            *_, h_p, w_p, d = spatial_full.shape
+
+            cls_full = torch.cat(cls_chunks, dim=-1)  # [b c d]
+
+            x = F.normalize(
+                rearrange(cls_full, "b c d -> b d c"),
+                dim=-1,
+                eps=1e-6,
+            )
+            sim = x @ x.transpose(-1, -2)  # [b, d, d]
+            score = sim.mean(dim=-1)  # [b, d]
+            idx = score.argmax(dim=-1)  # [b]
+            cls_rep = torch.gather(
+                cls_full,
+                dim=2,
+                index=idx[:, None, None].expand(-1, cls_full.shape[1], 1),
+            )
+
+            spatial_affinity = F.cosine_similarity(
+                rearrange(spatial_full, "b c h_p w_p d -> (b d) c (h_p w_p)"),
+                repeat(cls_rep, "b c 1 -> (b d) c 1", d=d),
+                dim=1,
+                eps=1e-6,
+            )
+            spatial_affinity = rearrange(
+                spatial_affinity, "(b d) (h_p w_p) -> b 1 h_p w_p d", d=d, h_p=h_p
+            )
+            outputs.append((spatial_affinity, spatial_full))
 
         return outputs
 
     def _distill_loss(
         self, teacher_out, student_out, recon=None, volume=None, mask=None
     ):
-        cls_total, token_total = 0.0, 0.0
+        affinity_total, token_total = 0.0, 0.0
         n = len(teacher_out)
 
         # Build voxel-space keep mask once when masking is active, so both
         # cls and token cosine terms share the same spatial weighting.
-        mask_3d = None
-        mask_up = None
+        mask_bool = None
 
         if mask is not None:
-            mask_3d = mask.unflatten(1, self.model.patch_embed.patches_resolution)
-            mask_up = torch.repeat_interleave(mask_3d, self.model.patch_size[0], dim=1)
+            mask_up = mask.unflatten(1, self.model.patch_embed.patches_resolution)
+            mask_up = torch.repeat_interleave(mask_up, self.model.patch_size[0], dim=1)
             mask_up = torch.repeat_interleave(mask_up, self.model.patch_size[1], dim=2)
             mask_up = torch.repeat_interleave(mask_up, self.model.patch_size[2], dim=3)
+            mask_bool = mask_up.bool()
 
-        for (t_c, t_p), (s_c, s_p, *_) in zip(teacher_out, student_out):
-            t_interp = F.interpolate(
-                t_p,
-                size=(s_p.shape[2], s_p.shape[3], s_p.shape[4]),
+        for (t_aff, t_patch), (s_cls, s_patch) in zip(teacher_out, student_out):
+            t_patch_interp = F.interpolate(
+                t_patch,
+                size=(s_patch.shape[2], s_patch.shape[3], s_patch.shape[4]),
                 mode="trilinear",
                 align_corners=False,
             )
-            t_cn, s_cn = F.normalize(t_c, p=2, eps=1e-6, dim=1), F.normalize(
-                s_c, p=2, eps=1e-6, dim=1
-            )
-            cls_total += 2 - 2 * (t_cn * s_cn).sum(dim=1).mean()
-            t_pn, s_pn = F.normalize(t_interp, p=2, eps=1e-6, dim=1), F.normalize(
-                s_p, p=2, eps=1e-6, dim=1
+            t_aff_interp = F.interpolate(
+                t_aff,
+                size=(s_patch.shape[2], s_patch.shape[3], s_patch.shape[4]),
+                mode="trilinear",
+                align_corners=False,
+            ).squeeze(0)
+
+            s_aff = F.cosine_similarity(
+                s_patch, s_cls[..., None, None, None], dim=1, eps=1e-6
             )
 
-            if (mask_3d is None) or True:
-                token_total += (
-                    2 - 2 * (t_pn * s_pn).sum(dim=1).mean(dim=(1, 2, 3)).mean()
-                )
-            else:
-                cos_map = (t_pn * s_pn).sum(dim=1)  # (B, D', H', W')
-                masked_cos_sum = (cos_map * mask_3d).sum(dim=(1, 2, 3))
-                num_masked_tok = mask_3d.sum(dim=(1, 2, 3))
-                has_masked_tok = num_masked_tok > 0
-                denom = num_masked_tok.clamp(min=1)
+            affinity_total += (t_aff_interp - s_aff).square().mean()
+            t_pn, s_pn = F.normalize(t_patch_interp, p=2, eps=1e-6, dim=1), F.normalize(
+                s_patch, p=2, eps=1e-6, dim=1
+            )
 
-                token_loss_per_sample = 2 - 2 * (masked_cos_sum / denom)
-                n_masked_samples = has_masked_tok.sum().clamp(min=1)
-                token_total += token_loss_per_sample.sum() / n_masked_samples
+            # if (mask_3d is None) or True:
+            token_total += 2 - 2 * (t_pn * s_pn).sum(dim=1).mean(dim=(1, 2, 3)).mean()
+            # else:
+            #     cos_map = (t_pn * s_pn).sum(dim=1)  # (B, D', H', W')
+            #     masked_cos_sum = (cos_map * mask_3d).sum(dim=(1, 2, 3))
+            #     num_masked_tok = mask_3d.sum(dim=(1, 2, 3))
+            #     has_masked_tok = num_masked_tok > 0
+            #     denom = num_masked_tok.clamp(min=1)
+            #
+            #     token_loss_per_sample = 2 - 2 * (masked_cos_sum / denom)
+            #     n_masked_samples = has_masked_tok.sum().clamp(min=1)
+            #     token_total += token_loss_per_sample.sum() / n_masked_samples
 
         loss_dict = {
-            "loss": (0.1 * cls_total + 0.9 * token_total) / n,
-            # "loss": token_total / n,
-            "cls_cos": cls_total / n,
+            "loss": 0.5 * (affinity_total + token_total) / n,
+            "affinity_l2": affinity_total / n,
             "token_cos": token_total / n,
         }
 
         if recon is not None and mask is not None:
-            # loss_mask == 1 on dropped (masked) regions
-            masked_recon = recon * mask_up
-            masked_volume = volume * mask_up
-            # Per-element huber, then normalise per batch element by its
-            # own masked voxel count, sum across the batch, and average.
-            huber_per_elem = F.huber_loss(masked_recon, masked_volume, reduction="none")
+            huber_per_elem = F.huber_loss(
+                recon,
+                volume,
+                reduction="none",
+            )  # [B, C, D, H, W]
 
-            num_masked = mask_up.sum(dim=(1, 2, 3))
+            # Average over channels first so mask matches dimensions.
+            huber_per_voxel = huber_per_elem.mean(dim=1)  # [B, D, H, W]
+
+            num_masked = mask_bool.sum(dim=(1, 2, 3))
             has_masked = num_masked > 0
-            num_masked_denom = num_masked.clamp(min=1)
 
-            huber_per_elem = (
-                huber_per_elem.sum(dim=(2, 3, 4)).mean(dim=1) / num_masked_denom
-            )
-            # Average only over samples that actually had masking applied
-            n_masked_samples = has_masked.sum().clamp(min=1)
-            huber = huber_per_elem.sum() / n_masked_samples
+            huber_per_sample = (huber_per_voxel * mask_bool).sum(
+                dim=(1, 2, 3)
+            ) / num_masked.clamp(min=1)
+
+            huber = huber_per_sample[has_masked].mean()
 
             loss_dict["loss"] += huber
             loss_dict["huber"] = huber

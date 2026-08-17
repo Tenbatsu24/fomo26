@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Optional
 
 import matplotlib
+from matplotlib.colors import Normalize
 
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
@@ -13,7 +14,7 @@ import torch
 import torch.nn.functional as F
 from sklearn.decomposition import PCA
 
-from visualisation.utils import colorbar, sigmoid
+from visualisation.utils import sigmoid
 
 DEFAULT_OUTPUT_DIR = Path(__file__).resolve().parents[1] / "understand" / "pca_3d"
 DEFAULT_DATASET = "CLS002_FOMO26_Infarct"
@@ -323,10 +324,10 @@ def plot_volume_pca_3d(
             y=0.98,
         )
 
+        all_recon_slices: list[np.ndarray] = []
         for c in range(n_channels):
             for r in range(3):
                 for s in range(3):
-                    ax = axes_rec[r, c * 3 + s]
                     d_idx = slice_indices[r * 3 + s]
                     d_start = d_idx * ps[2]
                     d_end = d_start + ps[2]
@@ -334,13 +335,34 @@ def plot_volume_pca_3d(
                     recon_slice = (
                         recon[c, 0, :, :, d_start:d_end].mean(dim=-1).cpu().numpy()
                     )
+                    all_recon_slices.append(recon_slice)
                     # NO normalisation — reconstruction is output, not input
-                    im = ax.imshow(recon_slice, cmap="gray", aspect="equal")
-                    ax.set_title(f"ch={c}  z={d_idx}", fontsize=9)
-                    ax.set_xticks([])
-                    ax.set_yticks([])
 
-        # add one colour bar for the whole image
+        global_rmin = min(s.min() for s in all_recon_slices)
+        global_rmax = max(s.max() for s in all_recon_slices)
+
+        norm = Normalize(vmin=global_rmin, vmax=global_rmax)
+
+        for i, ax in enumerate(axes_rec.reshape(-1)):
+            ax.imshow(
+                all_recon_slices[i],
+                cmap="gray",
+                norm=norm,
+                aspect="equal",
+            )
+            ax.set_xticks([])
+            ax.set_yticks([])
+
+        # Shared colorbar
+        sm = plt.cm.ScalarMappable(cmap="gray", norm=norm)
+        sm.set_array([])  # for older matplotlib versions
+
+        fig_rec.colorbar(
+            sm,
+            ax=axes_rec,
+            shrink=0.8,
+            label="recon intensity",
+        )
 
         recon_path = output_dir / "volume_pca_3d_recon.png"
         fig_rec.savefig(recon_path)
