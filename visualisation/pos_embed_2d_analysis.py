@@ -1,4 +1,4 @@
-"""Visualise the learned position embedding of a ViT checkpoint.
+"""Visualise the learned position embedding of a 2-D ViT checkpoint.
 
 The position embedding (`pos_embed`) in a Vision Transformer is a
 learned lookup table that assigns a dense vector to every patch (plus
@@ -15,13 +15,11 @@ Typical hypotheses tested here:
   4. **Learned spatial continuity** — neighbouring patches have
      similar embeddings, but the mapping is non-linear and not
      trivially invertible.
-
-The checkpoint used here is a 2-D ViT-S (patch_size=14, img_size=518)
-so the patch grid is 37 × 37.
 """
 
 from __future__ import annotations
 
+import argparse
 from pathlib import Path
 
 import matplotlib
@@ -30,20 +28,12 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
 import torch
+from sklearn.decomposition import PCA
 
-from visualisation import _shared
+from visualisation.utils import colorbar, save_figure
 
-# ---------------------------------------------------------------------------
-# Constants
-# ---------------------------------------------------------------------------
-CHECKPOINT = _shared.CHECKPOINT
-OUTPUT_DIR = _shared.OUTPUT_DIR
-GRID_SIZE = _shared.GRID_SIZE
-DEVICE = _shared.DEVICE
+DEFAULT_OUTPUT_DIR = Path(__file__).resolve().parents[1] / "understand" / "pos_embed_2d"
 
-PALETTE_SEQUENTIAL = _shared.PALETTE_SEQUENTIAL
-PALETTE_DIVERGING = _shared.PALETTE_DIVERGING
-PALETTE_GRAY = _shared.PALETTE_GRAY
 
 # ---------------------------------------------------------------------------
 # Loading
@@ -51,7 +41,7 @@ PALETTE_GRAY = _shared.PALETTE_GRAY
 
 
 def load_pos_embed(
-    checkpoint_path: Path | str = CHECKPOINT,
+    checkpoint_path: Path | str,
 ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
     """Load pos_embed, cls_token and register_tokens from a ViT checkpoint.
 
@@ -68,7 +58,7 @@ def load_pos_embed(
     return cls_token, patch_pos, reg_token
 
 
-def to_grid(patch_pos: torch.Tensor, grid_size: int = GRID_SIZE) -> np.ndarray:
+def to_grid(patch_pos: torch.Tensor, grid_size: int) -> np.ndarray:
     """Reshape [1, H*W, D] → [H, W, D] and bring to CPU for numpy ops."""
     return patch_pos.view(grid_size, grid_size, -1).cpu().numpy()
 
@@ -86,14 +76,7 @@ def patch_norms(grid: np.ndarray) -> np.ndarray:
 def radial_profile(
     norms: np.ndarray, center: tuple[int, int] | None = None
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-    """Mean norm as a function of radial distance from *center*.
-
-    Returns
-    -------
-    radii : sorted unique radii encountered
-    mean_norm : mean norm at each radius
-    std_norm : std of norm at each radius
-    """
+    """Mean norm as a function of radial distance from *center*."""
     if center is None:
         h, w = norms.shape
         center = (h // 2, w // 2)
@@ -171,35 +154,21 @@ def position_correlations(grid: np.ndarray) -> dict[str, float]:
 
 
 # ---------------------------------------------------------------------------
-# Plotting helpers
-# ---------------------------------------------------------------------------
-
-_fig_kw = _shared._fig_kw
-_colorbar = _shared._colorbar
-
-
-# ---------------------------------------------------------------------------
 # Main visualisation
 # ---------------------------------------------------------------------------
 
 
 def plot_pos_embed(
-    checkpoint_path: Path | str = CHECKPOINT,
-    output_dir: Path | str = OUTPUT_DIR,
-    grid_size: int = GRID_SIZE,
+    checkpoint_path: Path | str,
+    output_dir: Path | str = DEFAULT_OUTPUT_DIR,
+    grid_size: int = 37,
 ) -> Path:
-    """Generate all position-embedding visualisations and save to *output_dir*.
-
-    Returns the path to the saved composite figure.
-    """
+    """Generate all position-embedding visualisations and save to *output_dir*."""
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
 
     # --- Load ----------------------------------------------------------------
     cls_token, patch_pos, reg_token = load_pos_embed(checkpoint_path)
-    cls_token = cls_token.to(DEVICE)
-    patch_pos = patch_pos.to(DEVICE)
-    reg_token = reg_token.to(DEVICE)
     grid_np = to_grid(patch_pos, grid_size)  # [H, W, D] on CPU
     norms = patch_norms(grid_np)
 
@@ -207,6 +176,14 @@ def plot_pos_embed(
     neighbor_sim = neighbor_cosine_similarity(grid_np)
     pos_corr = position_correlations(grid_np)
     radii, rad_mean, rad_std = radial_profile(norms)
+
+    # --- PC1 / PC2 via sklearn PCA ------------------------------------------
+    flat = torch.from_numpy(grid_np).float().reshape(-1, grid_np.shape[-1])
+    pca = PCA(n_components=2, whiten=False)
+    proj = pca.fit_transform(flat.numpy())  # [H*W, 2]
+    pc1_grid = proj[:, 0].reshape(grid_size, grid_size)
+    pc2_grid = proj[:, 1].reshape(grid_size, grid_size)
+    explained_ratio = pca.explained_variance_ratio_
 
     # --- Build figure --------------------------------------------------------
     fig, axes = plt.subplots(2, 3, figsize=(18, 12), dpi=150)
@@ -220,11 +197,11 @@ def plot_pos_embed(
 
     # 1) Patch embedding norms (spatial map)
     ax = axes[0, 0]
-    im = ax.imshow(norms, cmap=PALETTE_SEQUENTIAL, aspect="equal")
+    im = ax.imshow(norms, cmap="viridis", aspect="equal")
     ax.set_title("Patch Embedding Norms  (L2)", fontsize=11)
     ax.set_xlabel("patch x")
     ax.set_ylabel("patch y")
-    _colorbar(ax, im, label="‖eᵢ‖₂")
+    colorbar(fig, im, ax=ax, label="‖eᵢ‖₂")
     h, w = norms.shape
     ax.text(
         0.5,
@@ -281,21 +258,17 @@ def plot_pos_embed(
     ax.axvline(0.5, color="gray", linestyle="--", alpha=0.5, label="chance (~0.5)")
     ax.legend(fontsize=9)
 
-    # 4) First 64 dims — PCA-like projection (first 2 PC axes of patch grid)
+    # 4) PC1 of Patch Embeddings (spatial layout)
     ax = axes[1, 0]
-    flat = torch.from_numpy(grid_np).float().reshape(-1, grid_np.shape[-1])
-    mean = flat.mean(dim=0)
-    centered = flat - mean
-    U, S, Vt = torch.linalg.svd(centered, full_matrices=False)
-    pc1 = (U[:, 0] * S[0]).numpy()
-    pc2 = (U[:, 1] * S[1]).numpy()
-    pc_grid1 = pc1.reshape(grid_size, grid_size)
-    pc_grid2 = pc2.reshape(grid_size, grid_size)
-    im = ax.imshow(pc_grid1, cmap=PALETTE_DIVERGING, aspect="equal")
-    ax.set_title("PC1 of Patch Embeddings  (spatial layout)", fontsize=11)
+    im = ax.imshow(pc1_grid, cmap="coolwarm", aspect="equal")
+    ax.set_title(
+        f"PC1 of Patch Embeddings  (spatial layout)  "
+        f"(explains {explained_ratio[0]:.1%} variance)",
+        fontsize=11,
+    )
     ax.set_xlabel("patch x")
     ax.set_ylabel("patch y")
-    _colorbar(ax, im, label="PC1 score")
+    colorbar(fig, im, ax=ax, label="PC1 score")
 
     # 5) Position-correlation bar chart
     ax = axes[1, 1]
@@ -385,7 +358,7 @@ def plot_pos_embed(
 
 
 def _save_dim_grid(patch_pos: torch.Tensor, grid_size: int, out: Path) -> None:
-    """First 8 embedding dimensions as a 2×4 grid of heatmaps."""
+    """First 8 embedding dimensions as a 2×4 grid of heatmaps with one colour bar."""
     grid = patch_pos.view(grid_size, grid_size, -1).to("cpu")
     n_dims = min(8, grid.shape[-1])
     cols = 4
@@ -395,15 +368,27 @@ def _save_dim_grid(patch_pos: torch.Tensor, grid_size: int, out: Path) -> None:
     fig.suptitle(
         "First 8 Embedding Dimensions — Spatial Layout", fontsize=13, fontweight="bold"
     )
+    # Determine global vmin/vmax across all dimensions for a single colour bar
+    all_vals = grid[:, :, :n_dims].reshape(-1, n_dims)
+    global_min = all_vals.min()
+    global_max = all_vals.max()
+
     for i in range(n_dims):
         ax = axes[i]
-        im = ax.imshow(grid[:, :, i].numpy(), cmap=PALETTE_DIVERGING, aspect="equal")
+        im = ax.imshow(
+            grid[:, :, i].numpy(),
+            cmap="coolwarm",
+            aspect="equal",
+            vmin=global_min,
+            vmax=global_max,
+        )
         ax.set_title(
             f"dim [{i}]  (μ={grid[:, :, i].mean():.4f}, σ={grid[:, :, i].std():.4f})"
         )
         ax.set_xticks([])
         ax.set_yticks([])
-        plt.colorbar(im, ax=ax, shrink=0.8)
+    # Single shared colour bar for the whole figure
+    fig.colorbar(im, ax=axes.tolist(), shrink=0.8, label="value")
     for j in range(n_dims, len(axes)):
         axes[j].set_visible(False)
     plt.tight_layout()
@@ -414,11 +399,7 @@ def _save_dim_grid(patch_pos: torch.Tensor, grid_size: int, out: Path) -> None:
 
 
 def _save_distance_heatmap(patch_pos: torch.Tensor, grid_size: int, out: Path) -> None:
-    """Pairwise cosine-distance heatmap for a central crop of the patch grid.
-
-    Shows whether nearby patches in grid space are also close in embedding
-    space — a signature of learned spatial continuity.
-    """
+    """Pairwise cosine-distance heatmap for a central crop of the patch grid."""
     grid = patch_pos.view(grid_size, grid_size, -1).to("cpu").numpy()
     crop = 13
     offset = (grid_size - crop) // 2
@@ -431,11 +412,11 @@ def _save_distance_heatmap(patch_pos: torch.Tensor, grid_size: int, out: Path) -
     dist = 1 - sim.numpy()
 
     fig, ax = plt.subplots(figsize=(7, 6), dpi=150)
-    im = ax.imshow(dist, cmap=PALETTE_DIVERGING, vmin=0, vmax=0.5, aspect="equal")
+    im = ax.imshow(dist, cmap="coolwarm", vmin=0, vmax=0.5, aspect="equal")
     ax.set_title(f"Pairwise Cosine Distance  ({crop}×{crop} central crop)", fontsize=12)
     ax.set_xlabel("patch index (flattened)")
     ax.set_ylabel("patch index (flattened)")
-    plt.colorbar(im, ax=ax, label="1 − cos_sim")
+    fig.colorbar(im, ax=ax, label="1 − cos_sim", shrink=0.8)
     plt.tight_layout()
     out_path = out / "pos_embed_distance_heatmap.png"
     fig.savefig(out_path, bbox_inches="tight")
@@ -447,5 +428,37 @@ def _save_distance_heatmap(patch_pos: torch.Tensor, grid_size: int, out: Path) -
 # CLI entry point
 # ---------------------------------------------------------------------------
 
+
+def main() -> None:
+    parser = argparse.ArgumentParser(
+        description="Visualise the learned position embedding of a 2-D ViT checkpoint."
+    )
+    parser.add_argument(
+        "--checkpoint",
+        type=str,
+        required=True,
+        help="Path to the ViT checkpoint file.",
+    )
+    parser.add_argument(
+        "--grid-size",
+        type=int,
+        default=37,
+        help="Side length of the square patch grid (default: 37).",
+    )
+    parser.add_argument(
+        "--output-dir",
+        type=str,
+        default=str(DEFAULT_OUTPUT_DIR),
+        help=f"Directory to save output figures (default: {DEFAULT_OUTPUT_DIR}).",
+    )
+    args = parser.parse_args()
+
+    plot_pos_embed(
+        checkpoint_path=args.checkpoint,
+        output_dir=args.output_dir,
+        grid_size=args.grid_size,
+    )
+
+
 if __name__ == "__main__":
-    plot_pos_embed()
+    main()

@@ -1,8 +1,8 @@
-"""Visualise the learned patch-embedding Conv2d weights and bias.
+"""Visualise the learned patch-embedding Conv2d weights and bias (2-D ViT).
 
 The patch embedding (`patch_embed.proj`) in a ViT is a convolution that
-maps an input patch `(C, ps, ps)` to an embedding vector of dimension
-`embed_dim`.  This module loads a checkpoint, extracts the convolution
+maps an input patch ``(C, ps, ps)`` to an embedding vector of dimension
+``embed_dim``.  This module loads a checkpoint, extracts the convolution
 kernel and bias, and produces a set of plots that answer the question:
 *what kind of spatial filters has patch_embed learnt?*
 
@@ -15,14 +15,13 @@ Typical hypotheses tested here:
      inhibition patterns.
   4. **Uniform / low-rank** — many kernels are nearly identical or
      close to zero (under-utilised output channels).
-
-The checkpoint used here is a 2-D ViT-S (patch_size=14, img_size=518)
-so the kernel shape is `[embed_dim, in_chans, ps, ps] = [384, 3, 14, 14]`.
 """
 
 from __future__ import annotations
 
+import argparse
 import math
+import warnings
 from pathlib import Path
 
 import matplotlib
@@ -33,30 +32,19 @@ import matplotlib.colors as mcolors
 import numpy as np
 import torch
 
-from visualisation import _shared
+from visualisation.utils import colorbar, fig_kw, save_figure
 
-# ---------------------------------------------------------------------------
-# Constants
-# ---------------------------------------------------------------------------
-CHECKPOINT = _shared.CHECKPOINT
-OUTPUT_DIR = _shared.OUTPUT_DIR
-PATCH_SIZE = _shared.PATCH_SIZE
-IN_CHANS = _shared.IN_CHANS
-EMBED_DIM = _shared.EMBED_DIM
-DEVICE = _shared.DEVICE
+DEFAULT_OUTPUT_DIR = (
+    Path(__file__).resolve().parents[1] / "understand" / "patch_embed_2d"
+)
 
-PALETTE_SEQUENTIAL = _shared.PALETTE_SEQUENTIAL
-PALETTE_DIVERGING = _shared.PALETTE_DIVERGING
-PALETTE_GRAY = _shared.PALETTE_GRAY
 
 # ---------------------------------------------------------------------------
 # Loading
 # ---------------------------------------------------------------------------
 
 
-def load_patch_embed(
-    checkpoint_path: Path | str = CHECKPOINT,
-) -> tuple[torch.Tensor, torch.Tensor]:
+def load_patch_embed(checkpoint_path: Path | str) -> tuple[torch.Tensor, torch.Tensor]:
     """Load patch_embed weights and bias from a ViT checkpoint.
 
     Returns
@@ -80,69 +68,9 @@ def to_numpy(weight: torch.Tensor, bias: torch.Tensor) -> tuple[np.ndarray, np.n
 
 
 def kernel_l2_norms(weight: np.ndarray) -> np.ndarray:
-    """L2 norm of each output-channel kernel → [embed_dim].
-
-    Each kernel has shape (in_chans, ps, ps); we flatten and take the
-    Euclidean norm.
-    """
+    """L2 norm of each output-channel kernel → [embed_dim]."""
     flat = weight.reshape(weight.shape[0], -1)
     return np.linalg.norm(flat, axis=1)
-
-
-def kernel_spectral_norms(weight: np.ndarray) -> np.ndarray:
-    """Spectral norm of each per-output-channel convolution operator.
-
-    For a single output channel the conv is a rank-1 map from
-    R^(C·ps·ps) → R, so the spectral norm equals the L2 norm of the
-    flattened kernel.  We return the same values for consistency with
-    the naming convention; for multi-output spectral norm see
-    :func:`layer_spectral_norm`.
-    """
-    return kernel_l2_norms(weight)
-
-
-def layer_spectral_norm(weight: np.ndarray) -> float:
-    """Largest singular value of the full [embed_dim, C·ps·ps] weight matrix."""
-    flat = weight.reshape(weight.shape[0], -1)
-    s = np.linalg.svd(flat, compute_uv=False, full_matrices=False)
-    return float(s[0])
-
-
-def singular_value_spectrum(weight: np.ndarray) -> np.ndarray:
-    """All singular values of the flattened weight matrix, sorted descending.
-
-    Returns
-    -------
-    sv : np.ndarray  shape [min(embed_dim, C·ps·ps)]
-    """
-    flat = weight.reshape(weight.shape[0], -1)
-    return np.linalg.svd(flat, compute_uv=False, full_matrices=False)
-
-
-def spectral_condition_number(weight: np.ndarray) -> float:
-    """Ratio of largest to smallest singular value."""
-    sv = singular_value_spectrum(weight)
-    return float(sv[0] / (sv[-1] + 1e-12))
-
-
-def spectral_energy_fraction(
-    weight: np.ndarray, cumsum_thresh: float = 0.95
-) -> tuple[int, float]:
-    """Number of singular values needed to capture *cumsum_thresh* of total energy.
-
-    Returns
-    -------
-    n_eff : int
-        Effective rank — number of singular values whose squared sum
-        reaches *cumsum_thresh* of the total squared singular values.
-    fraction : float
-        The fraction captured by the top *n_eff* singular values.
-    """
-    sv = singular_value_spectrum(weight)
-    sv2 = sv**2
-    cumsum = np.cumsum(sv2) / sv2.sum()
-    n_eff = int(np.searchsorted(cumsum, cumsum_thresh) + 1)
-    return n_eff, float(cumsum[n_eff - 1])
 
 
 def kernel_l1_norms(weight: np.ndarray) -> np.ndarray:
@@ -150,45 +78,17 @@ def kernel_l1_norms(weight: np.ndarray) -> np.ndarray:
     return np.abs(weight).reshape(weight.shape[0], -1).sum(axis=1)
 
 
-def kernel_frobenius_norms(weight: np.ndarray) -> np.ndarray:
-    """Frobenius norm of each kernel — same as L2 for a vector."""
-    return np.linalg.norm(weight.reshape(weight.shape[0], -1), axis=1)
-
-
-def per_channel_norms(weight: np.ndarray) -> np.ndarray:
-    """Mean kernel norm contributed by each input channel → [in_chans].
-
-    For each input channel c, averages the L2 norm of the (ps, ps) slice
-    across all output channels.
-    """
-    E, C, H, W = weight.shape
-    channel_norms = np.linalg.norm(weight.transpose(1, 0, 2, 3).reshape(C, -1), axis=1)
-    return channel_norms / E
-
-
-def kernel_orientation(weight: np.ndarray) -> np.ndarray:
-    """Dominant orientation angle (in degrees) of each kernel.
-
-    Computed from the eigenvectors of the spatial covariance matrix of
-    each flattened kernel.  Returns angles in [0, 180).
-    """
-    E, C, H, W = weight.shape
-    angles = np.zeros(E)
-    for e in range(E):
-        k = weight[e].reshape(C, -1)  # [C, H*W]
-        cov = k.T @ k / k.shape[1]  # [H*W, H*W]
-        eigvals, eigvecs = np.linalg.eigh(cov)
-        v = eigvecs[:, -1][:H]  # take the H-component
-        angle = math.degrees(math.atan2(v.sum(), (np.abs(v) + 1e-8).sum()))
-        angle = angle % 180
-        angles[e] = angle
-    return angles
-
-
 def kernel_sparsity(weight: np.ndarray, threshold: float = 1e-4) -> np.ndarray:
     """Fraction of near-zero entries per kernel → [embed_dim]."""
     flat = weight.reshape(weight.shape[0], -1)
     return (np.abs(flat) < threshold).mean(axis=1)
+
+
+def per_channel_norms(weight: np.ndarray) -> np.ndarray:
+    """Mean kernel norm contributed by each input channel → [in_chans]."""
+    E, C, H, W = weight.shape
+    channel_norms = np.linalg.norm(weight.transpose(1, 0, 2, 3).reshape(C, -1), axis=1)
+    return channel_norms / E
 
 
 def bias_statistics(bias: np.ndarray) -> dict[str, float]:
@@ -221,23 +121,60 @@ def neighbor_kernel_similarity(weight: np.ndarray) -> dict[str, float]:
     }
 
 
+def layer_spectral_norm(weight: np.ndarray) -> float:
+    """Largest singular value of the full [embed_dim, C·ps·ps] weight matrix."""
+    flat = weight.reshape(weight.shape[0], -1)
+    s = np.linalg.svd(flat, compute_uv=False, full_matrices=False)
+    return float(s[0])
+
+
+def singular_value_spectrum(weight: np.ndarray) -> np.ndarray:
+    """All singular values of the flattened weight matrix, sorted descending."""
+    flat = weight.reshape(weight.shape[0], -1)
+    return np.linalg.svd(flat, compute_uv=False, full_matrices=False)
+
+
+def spectral_condition_number(weight: np.ndarray) -> float:
+    """Ratio of largest to smallest singular value."""
+    sv = singular_value_spectrum(weight)
+    return float(sv[0] / (sv[-1] + 1e-12))
+
+
+def spectral_energy_fraction(
+    weight: np.ndarray, cumsum_thresh: float = 0.95
+) -> tuple[int, float]:
+    """Number of singular values needed to capture *cumsum_thresh* of total energy."""
+    sv = singular_value_spectrum(weight)
+    sv2 = sv**2
+    cumsum = np.cumsum(sv2) / sv2.sum()
+    n_eff = int(np.searchsorted(cumsum, cumsum_thresh) + 1)
+    return n_eff, float(cumsum[n_eff - 1])
+
+
+def kernel_orientation(weight: np.ndarray) -> np.ndarray:
+    """Dominant orientation angle (in degrees) of each kernel."""
+    E, C, H, W = weight.shape
+    angles = np.zeros(E)
+    for e in range(E):
+        k = weight[e].reshape(C, -1)  # [C, H*W]
+        cov = k.T @ k / k.shape[1]  # [H*W, H*W]
+        eigvals, eigvecs = np.linalg.eigh(cov)
+        v = eigvecs[:, -1][:H]  # take the H-component
+        angle = math.degrees(math.atan2(v.sum(), (np.abs(v) + 1e-8).sum()))
+        angle = angle % 180
+        angles[e] = angle
+    return angles
+
+
 # ---------------------------------------------------------------------------
 # Plotting helpers
 # ---------------------------------------------------------------------------
 
-_fig_kw = _shared._fig_kw
-_colorbar = _shared._colorbar
-
 
 def _show_kernel_grid(
-    weight: np.ndarray, start: int, n: int, title: str, cmap: str = PALETTE_DIVERGING
+    weight: np.ndarray, start: int, n: int, title: str, cmap: str = "coolwarm"
 ) -> plt.Figure:
-    """Return a figure displaying *n* kernels starting at *start* in a grid.
-
-    Each kernel is (in_chans, ps, ps).  If in_chans == 3 we render as an
-    RGB-like image (clipped to [−1, 1] after normalising each channel
-    independently).  Otherwise we show the sum across input channels.
-    """
+    """Return a figure displaying *n* kernels starting at *start* in a grid."""
     rows = math.ceil(n**0.5)
     cols = math.ceil(n / rows)
     sub = weight[start : start + n]  # [n, C, ps, ps]
@@ -284,13 +221,10 @@ def _show_kernel_grid(
 
 
 def plot_patch_embed(
-    checkpoint_path: Path | str = CHECKPOINT,
-    output_dir: Path | str = OUTPUT_DIR,
+    checkpoint_path: Path | str,
+    output_dir: Path | str = DEFAULT_OUTPUT_DIR,
 ) -> Path:
-    """Generate all patch-embedding visualisations and save to *output_dir*.
-
-    Returns the path to the saved composite figure.
-    """
+    """Generate all patch-embedding visualisations and save to *output_dir*."""
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
 
@@ -360,7 +294,7 @@ def plot_patch_embed(
     print(f"  Weight shape : {weight_np.shape}")
     print(f"  Bias shape   : {bias_np.shape}")
     print(f"  Layer spectral norm : {layer_spec:.4f}")
-    print(f"  Singular values    : {len(sv_spectrum)} total, " f"κ = {cond_num:.1f}")
+    print(f"  Singular values    : {len(sv_spectrum)} total, κ = {cond_num:.1f}")
     print(
         f"  Effective rank (90% energy) : {n_eff_90} / {len(sv_spectrum)}  ({frac_90:.1%})"
     )
@@ -618,11 +552,7 @@ def _build_composite(
 
 
 def _save_kernel_slices(weight: np.ndarray, out: Path) -> None:
-    """Per-input-channel kernel visualisation: average kernel per input channel.
-
-    For each input channel c, computes the mean kernel across all output
-    channels and displays it alongside the per-channel kernel std.
-    """
+    """Per-input-channel kernel visualisation: average kernel per input channel."""
     C, ps = weight.shape[1], weight.shape[2]
     mean_kernels = weight.mean(axis=0)  # [C, ps, ps]
     std_kernels = weight.std(axis=0)  # [C, ps, ps]
@@ -639,23 +569,21 @@ def _save_kernel_slices(weight: np.ndarray, out: Path) -> None:
     )
     for c in range(C):
         ax_mean = axes[c * 2]
-        im_mean = ax_mean.imshow(
-            mean_kernels[c], cmap=PALETTE_DIVERGING, aspect="equal"
-        )
+        im_mean = ax_mean.imshow(mean_kernels[c], cmap="coolwarm", aspect="equal")
         ax_mean.set_title(
             f"Input ch {c}  —  mean kernel  "
             f"(μ={mean_kernels[c].mean():.4f}, σ={mean_kernels[c].std():.4f})"
         )
         ax_mean.set_xticks([])
         ax_mean.set_yticks([])
-        _colorbar(ax_mean, im_mean, label="mean value")
+        colorbar(fig, im_mean, label="mean value")
 
         ax_std = axes[c * 2 + 1]
-        im_std = ax_std.imshow(std_kernels[c], cmap=PALETTE_SEQUENTIAL, aspect="equal")
+        im_std = ax_std.imshow(std_kernels[c], cmap="viridis", aspect="equal")
         ax_std.set_title(f"Input ch {c}  —  std across output ch")
         ax_std.set_xticks([])
         ax_std.set_yticks([])
-        _colorbar(ax_std, im_std, label="std")
+        colorbar(fig, im_std, label="std")
 
     for j in range(C * 2, len(axes)):
         axes[j].set_visible(False)
@@ -870,5 +798,27 @@ def _save_singular_value_plot(
 # CLI entry point
 # ---------------------------------------------------------------------------
 
+
+def main() -> None:
+    parser = argparse.ArgumentParser(
+        description="Visualise the learned patch embedding of a 2-D ViT checkpoint."
+    )
+    parser.add_argument(
+        "--checkpoint",
+        type=str,
+        required=True,
+        help="Path to the ViT checkpoint file.",
+    )
+    parser.add_argument(
+        "--output-dir",
+        type=str,
+        default=str(DEFAULT_OUTPUT_DIR),
+        help=f"Directory to save output figures (default: {DEFAULT_OUTPUT_DIR}).",
+    )
+    args = parser.parse_args()
+
+    plot_patch_embed(checkpoint_path=args.checkpoint, output_dir=args.output_dir)
+
+
 if __name__ == "__main__":
-    plot_patch_embed()
+    main()
