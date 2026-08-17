@@ -167,7 +167,7 @@ def main():
     # csv_logger = CSVLogger(results_path, name=f"{run_name}")
     wandb_logger = WandbLogger(run_name, save_dir=results_path, project="fomo26")
 
-    model_dir = Path(results_path) / run_name / "cls-aff_patch-cos"
+    model_dir = Path(results_path) / run_name / "cls-aff_patch-cos_recon-huber"
     print(model_dir)
 
     checkpoint_callback = ModelCheckpoint(
@@ -175,7 +175,7 @@ def main():
         filename=f"step={{step}}-val_loss={{val/loss:.3f}}",
         monitor=f"val/loss",
         auto_insert_metric_name=False,
-        save_top_k=1,
+        save_top_k=-1,
         mode="min",
         save_last=False,
         enable_version_counter=False,
