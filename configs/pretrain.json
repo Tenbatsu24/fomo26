@@ -7,7 +7,7 @@
       8
     ],
     "use_patch_decode": true,
-    "use_mask": true,
+    "use_mask": false,
     "mask": {
       "mask_prob": 1.0,
       "per_sample_range": [0.1, 0.5]
@@ -21,13 +21,13 @@
     "crop_size": [
       224,
       224,
-      128
+      224
     ],
-    "batch_size": 2,
+    "batch_size": 1,
     "num_workers": 8,
     "num_samples": 1000
   },
-  "distill_from": -6,
+  "distill_from": -3,
   "enable_aug": false,
   "optimizer": {
     "type": "AdamW",
@@ -44,8 +44,7 @@
     "benchmark": true,
     "deterministic": false,
     "devices": "auto",
-    "gradient_clip_algorithm": "norm",
-    "gradient_clip_val": 3.0,
+    "gradient_clip_val": 0.5,
     "max_epochs": 100,
     "num_nodes": 1,
     "num_sanity_val_steps": 0,
@@ -59,7 +58,7 @@
   "scheduler": [
     [
       "lr",
-      "CatSched(LinSched(1e-5, 1e-2), CosSched(1e-2, 1e-6), 0.05)"
+      "CatSched(LinSched(1e-5, 5e-3), CosSched(5e-3, 1e-6), 0.05)"
     ],
     [
       "weight_decay",
@@ -67,5 +66,5 @@
     ]
   ],
   "metrics": null,
-  "seed": 244523
+  "seed": 486398
 }

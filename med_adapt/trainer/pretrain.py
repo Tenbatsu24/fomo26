@@ -272,7 +272,7 @@ class PretrainTrainer(pl.LightningModule):
             )
             cos_map = (t_pn * s_pn).sum(dim=1)  # (B, D', H', W')
 
-            if mask_3d is None:
+            if (mask_3d is None) or True:
                 token_total += 2 - 2 * cos_map.mean(dim=(1, 2, 3)).mean()
                 affinity_total += affinity_matrix.mean(dim=(1, 2, 3)).mean()
             else:
