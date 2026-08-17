@@ -1,7 +1,26 @@
-import random
-
 import torch
 import torch.nn.functional as F
+
+
+class MinMaxNorm:
+
+    def __init__(self):
+        pass
+
+    def __call__(self, sample):
+        out = dict(sample)
+
+        image = sample["image"]
+
+        ch_min = image.min(dim=1, keepdim=True).values
+        ch_max = image.max(dim=1, keepdim=True).values
+        denom = ch_max - ch_min
+        denom[denom == 0] = 1.0
+        image = (image - ch_min) / denom
+
+        out["image"] = image
+
+        return out
 
 
 class PadToShape3D:
