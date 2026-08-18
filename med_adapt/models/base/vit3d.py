@@ -160,7 +160,7 @@ class ViT3D(ViTv2):
                 outs.append((cls_token, patch_tokens))
 
         if self.use_patch_decode:
-            recon = self.patch_decode(outs[-1][-1])
+            recon = self.patch_decode(outs[-1][-1].detach())
         else:
             recon = None
 
