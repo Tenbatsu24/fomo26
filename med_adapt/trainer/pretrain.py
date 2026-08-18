@@ -189,16 +189,19 @@ class PretrainTrainer(pl.LightningModule):
 
         return spatial_affinity.clamp(-1.0, 1.0)
 
-    def _teacher_forward(self, volume: torch.Tensor, chunk_size: int = 16):
+    def _teacher_forward(self, volume: torch.Tensor, p_d: int = 8, chunk_size=16):
         b, c, h, w, d = volume.shape
         layer_outputs = (
             None  # list-of-lists: [layer][chunk] -> (cls_chunk, spatial_chunk)
         )
 
-        for d_start in range(0, d, chunk_size):
-            d_end = min(d_start + chunk_size, d)
-            vol_chunk = volume[..., d_start:d_end]  # b c h w d_chunk
-            d_chunk = d_end - d_start
+        d_that_matter = list(range(p_d // 2, d, p_d))
+        actual_d = len(d_that_matter)
+        slices_that_matter = volume[..., d_that_matter]
+
+        for d_start in range(0, actual_d, chunk_size):
+            d_end = min(d_start + chunk_size, actual_d)
+            vol_chunk = slices_that_matter[..., d_start:d_end]  # b c h w d_chunk
 
             vol_flat = rearrange(vol_chunk, "b c h w d -> (b d) c h w")
             ch_min = vol_flat.min(dim=1, keepdim=True).values
@@ -216,9 +219,9 @@ class PretrainTrainer(pl.LightningModule):
             for layer_idx, (cls_token, patch_token) in enumerate(intermediates):
                 # b=b, d=d_chunk pins the unflatten to THIS chunk's own (b d) ordering,
                 # so samples from different chunks never get interleaved.
-                cls_token = rearrange(cls_token, "(b d) c -> b c d", b=b, d=d_chunk)
+                cls_token = rearrange(cls_token, "(b d) c -> b c d", b=b)
                 spatial = rearrange(
-                    patch_token, "(b d) c h_p w_p -> b c h_p w_p d", b=b, d=d_chunk
+                    patch_token, "(b d) c h_p w_p -> b c h_p w_p d", b=b
                 )
                 layer_outputs[layer_idx].append((cls_token, spatial))
 
@@ -289,12 +292,12 @@ class PretrainTrainer(pl.LightningModule):
 
         # for (t_aff, t_patch), (s_cls, s_patch) in zip(teacher_out, student_out):
         for (*_, t_patch), (*_, s_patch) in zip(teacher_out, student_out):
-            t_patch_interp = F.interpolate(
-                t_patch,
-                size=(s_patch.shape[2], s_patch.shape[3], s_patch.shape[4]),
-                mode="trilinear",
-                align_corners=False,
-            )
+            # t_patch_interp = F.interpolate(
+            #     t_patch,
+            #     size=(s_patch.shape[2], s_patch.shape[3], s_patch.shape[4]),
+            #     mode="trilinear",
+            #     align_corners=False,
+            # )
             # t_aff_interp = F.interpolate(
             #     t_aff,
             #     size=(s_patch.shape[2], s_patch.shape[3], s_patch.shape[4]),
@@ -307,7 +310,7 @@ class PretrainTrainer(pl.LightningModule):
             # )
 
             # affinity_matrix = (t_aff_interp - s_aff).square()
-            t_pn, s_pn = F.normalize(t_patch_interp, p=2, eps=1e-6, dim=1), F.normalize(
+            t_pn, s_pn = F.normalize(t_patch, p=2, eps=1e-6, dim=1), F.normalize(
                 s_patch, p=2, eps=1e-6, dim=1
             )
             cos_map = (t_pn * s_pn).sum(dim=1)  # (B, D', H', W')
@@ -399,7 +402,7 @@ class PretrainTrainer(pl.LightningModule):
 
     def batch_to_loss(self, batch, train=False):
         with torch.no_grad():
-            teacher_outs = self._teacher_forward(batch["image"])
+            teacher_outs = self._teacher_forward(batch["image"], p_d=self.model.patch_size[-1])
 
         image = self.preprocess_batch(batch, train)
 
