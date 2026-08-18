@@ -48,6 +48,23 @@ def get_per_sample_range(low, high, *, batch_size):
     return global_values[[start, end - 1]]
 
 
+def cosine_loss_to_angle_safe(loss):
+    loss = torch.nan_to_num(
+        loss,
+        nan=4.0,  # corresponds to cos=-1
+        posinf=4.0,
+        neginf=0.0,  # corresponds to cos=1
+    )
+
+    cos_theta = torch.clamp(1.0 - loss / 2.0, -1.0, 1.0)
+    return torch.acos(cos_theta)
+
+
+def cosine_loss_to_angle_deg(loss):
+    theta = cosine_loss_to_angle_safe(loss)
+    return torch.rad2deg(theta)
+
+
 class PretrainTrainer(pl.LightningModule):
 
     def __init__(
@@ -195,15 +212,19 @@ class PretrainTrainer(pl.LightningModule):
             None  # list-of-lists: [layer][chunk] -> (cls_chunk, spatial_chunk)
         )
 
-        d_that_matter = list(range(p_d // 2, d, p_d))
-        actual_d = len(d_that_matter)
-        slices_that_matter = volume[..., d_that_matter]
+        # d_that_matter = list(range(p_d // 2, d, p_d))
+        # actual_d = len(d_that_matter)
+        # slices_that_matter = volume[..., d_that_matter]
 
-        chunked_ds = range(0, actual_d, chunk_size)
+        # chunked_ds = range(0, actual_d, chunk_size)
 
-        for d_start in chunked_ds:
-            d_end = min(d_start + chunk_size, actual_d)
-            vol_chunk = slices_that_matter[..., d_start:d_end]  # b c h w d_chunk
+        # for d_start in chunked_ds:
+        #     d_end = min(d_start + chunk_size, actual_d)
+        #     vol_chunk = slices_that_matter[..., d_start:d_end]  # b c h w d_chunk
+
+        for d_start in range(0, d, chunk_size):
+            d_end = min(d_start + chunk_size, d)
+            vol_chunk = volume[..., d_start:d_end]  # b c h w d_chunk
 
             vol_flat = rearrange(vol_chunk, "b c h w d -> (b d) c h w")
             ch_min = vol_flat.amin(dim=(1, 2, 3), keepdim=True)
@@ -221,8 +242,6 @@ class PretrainTrainer(pl.LightningModule):
                 layer_outputs = [[] for _ in intermediates]
 
             for layer_idx, (cls_token, patch_token) in enumerate(intermediates):
-                # b=b, d=d_chunk pins the unflatten to THIS chunk's own (b d) ordering,
-                # so samples from different chunks never get interleaved.
                 cls_token = rearrange(cls_token, "(b d) c -> b c d", b=b)
                 spatial = rearrange(
                     patch_token, "(b d) c h_p w_p -> b c h_p w_p d", b=b
@@ -236,40 +255,7 @@ class PretrainTrainer(pl.LightningModule):
             spatial_full = self.running_norm(
                 torch.cat(spatial_chunks, dim=-1)
             )  # [b c h_p w_p d]
-            # # spatial_full = torch.cat(spatial_chunks, dim=-1)
-            #
-            # *_, h_p, w_p, d = spatial_full.shape
-            #
-            # cls_full = self.running_norm.normalize(
-            #     torch.cat(cls_chunks, dim=-1)
-            # )  # [b c d]
-            # # cls_full = torch.cat(cls_chunks, dim=-1)
-            #
-            # x = F.normalize(
-            #     rearrange(cls_full, "b c d -> b d c"),
-            #     dim=-1,
-            #     eps=1e-6,
-            # )
-            # sim = x @ x.transpose(-1, -2)  # [b, d, d]
-            # score = sim.mean(dim=-1)  # [b, d]
-            # idx = score.argmax(dim=-1)  # [b]
-            # cls_rep = torch.gather(
-            #     cls_full,
-            #     dim=2,
-            #     index=idx[:, None, None].expand(-1, cls_full.shape[1], 1),
-            # )
-            #
-            # spatial_affinity = F.cosine_similarity(
-            #     rearrange(spatial_full, "b c h_p w_p d -> (b d) c (h_p w_p)"),
-            #     repeat(cls_rep, "b c 1 -> (b d) c 1", d=d),
-            #     dim=1,
-            #     eps=1e-6,
-            # )
-            # spatial_affinity = rearrange(
-            #     spatial_affinity, "(b d) (h_p w_p) -> b 1 h_p w_p d", d=d, h_p=h_p
-            # )
-            # # spatial_affinity = self.rescale_affinity(spatial_affinity).unsqueeze(1)
-            # outputs.append((spatial_affinity, spatial_full))
+
             outputs.append((spatial_full.detach(),))
 
         return outputs
@@ -283,7 +269,7 @@ class PretrainTrainer(pl.LightningModule):
         # Build voxel-space keep mask once when masking is active, so both
         # cls and token cosine terms share the same spatial weighting.
         mask_bool = None
-        mask_3d = None
+        # mask_3d = None
 
         if mask is not None:
             mask_3d = mask.unflatten(1, self.model.patch_embed.patches_resolution)
@@ -291,61 +277,47 @@ class PretrainTrainer(pl.LightningModule):
             mask_up = torch.repeat_interleave(mask_up, self.model.patch_size[1], dim=2)
             mask_up = torch.repeat_interleave(mask_up, self.model.patch_size[2], dim=3)
 
-            mask_3d = mask_3d.bool()
+            # mask_3d = mask_3d.bool()
             mask_bool = mask_up.bool()
 
-        # for (t_aff, t_patch), (s_cls, s_patch) in zip(teacher_out, student_out):
-        for (*_, t_patch), (*_, s_patch) in zip(teacher_out, student_out):
-            # t_patch_interp = F.interpolate(
-            #     t_patch,
-            #     size=(s_patch.shape[2], s_patch.shape[3], s_patch.shape[4]),
-            #     mode="trilinear",
-            #     align_corners=False,
-            # )
-            # t_aff_interp = F.interpolate(
-            #     t_aff,
-            #     size=(s_patch.shape[2], s_patch.shape[3], s_patch.shape[4]),
-            #     mode="trilinear",
-            #     align_corners=False,
-            # ).squeeze(1)
-
-            # s_aff = F.cosine_similarity(
-            #     s_patch, s_cls[..., None, None, None], dim=1, eps=1e-6
-            # )
-
-            # affinity_matrix = (t_aff_interp - s_aff).square()
-            t_pn, s_pn = F.normalize(t_patch, p=2, eps=1e-6, dim=1), F.normalize(
-                s_patch, p=2, eps=1e-6, dim=1
+        final_t_patch_interp = None
+        for zip_idx, ((*_, t_patch), (*_, s_patch)) in enumerate(
+            zip(teacher_out, student_out)
+        ):
+            t_patch_interp = F.interpolate(
+                t_patch,
+                size=(s_patch.shape[2], s_patch.shape[3], s_patch.shape[4]),
+                mode="trilinear",
+                align_corners=False,
             )
+            if zip_idx == n - 1:
+                final_t_patch_interp = t_patch_interp
+
+            t_pn = F.normalize(t_patch_interp, p=2, eps=1e-6, dim=1)
+            s_pn = F.normalize(s_patch, p=2, eps=1e-6, dim=1)
             cos_map = (t_pn * s_pn).sum(dim=1)  # (B, D', H', W')
 
-            if (mask_3d is None) or True:
-                token_total += 2 - 2 * cos_map.mean(dim=(1, 2, 3)).mean()
-                # affinity_total += affinity_matrix.mean(dim=(1, 2, 3)).mean()
-            else:
-                num_masked_tok = mask_3d.sum(dim=(1, 2, 3))
-                has_masked_tok = num_masked_tok > 0
-                denom = num_masked_tok.clamp(min=1)
-                n_masked_samples = has_masked_tok.sum().clamp(min=1)
+            token_total += 2 - 2 * cos_map.mean(dim=(1, 2, 3)).mean()
+            # else:
+            #     num_masked_tok = mask_3d.sum(dim=(1, 2, 3))
+            #     has_masked_tok = num_masked_tok > 0
+            #     denom = num_masked_tok.clamp(min=1)
+            #     n_masked_samples = has_masked_tok.sum().clamp(min=1)
+            #
+            #     masked_cos_sum = (cos_map * mask_3d).sum(dim=(1, 2, 3))
+            #     token_loss_per_sample = 2 - 2 * (masked_cos_sum / denom)
+            #     token_total += token_loss_per_sample.sum() / n_masked_samples
 
-                masked_cos_sum = (cos_map * mask_3d).sum(dim=(1, 2, 3))
-                token_loss_per_sample = 2 - 2 * (masked_cos_sum / denom)
-                token_total += token_loss_per_sample.sum() / n_masked_samples
-
-                # affinity_sum = (affinity_matrix * mask_3d).sum(dim=(1, 2, 3))
-                # affinity_loss_per_sample = affinity_sum / denom
-                # affinity_total += affinity_loss_per_sample.sum() / n_masked_samples
+        mean_token_cos = token_total / n
 
         loss_dict = {
-            # "loss": (affinity_total + token_total) / n,
-            "loss": token_total / n,
-            # "affinity_l2": affinity_total / n,
-            "token_cos": token_total / n,
+            "loss": mean_token_cos,
+            "token_cos": mean_token_cos,
+            "angle": cosine_loss_to_angle_deg(mean_token_cos),
         }
 
         if recon is not None:
-            teacher_patch = teacher_out[-1][-1]
-            teacher_recon = self.model.patch_decode(teacher_patch.detach())
+            teacher_recon = self.model.patch_decode(final_t_patch_interp.detach())
             t_huber = F.huber_loss(teacher_recon, volume, reduction="mean")
         else:
             t_huber = None

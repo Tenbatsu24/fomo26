@@ -7,7 +7,7 @@
       2
     ],
     "use_patch_decode": true,
-    "use_mask": false,
+    "use_mask": true,
     "mask": {
       "mask_prob": 1.0,
       "per_sample_range": [0.1, 0.5]

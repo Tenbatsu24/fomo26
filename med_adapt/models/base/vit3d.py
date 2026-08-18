@@ -1,11 +1,3 @@
-"""3-D extension of the 2-D ViT base model.
-
-Inherits from :class:`ViTv2` and replaces the 2-D patch embedding with a
-3-D counterpart while keeping every transformer block unchanged.  The
-positional embedding is expanded from a 2-D grid into a cubic 3-D grid
-by taking the element-wise maximum across three axis-aligned orientations.
-"""
-
 from __future__ import annotations
 
 from functools import partial
@@ -60,8 +52,8 @@ class ViT3D(ViTv2):
                 "embed_layer": PatchEmbed3D,
             },
         )
-        self.use_patch_decode = use_patch_decode
         self.use_mask = use_mask
+        self.use_patch_decode = use_patch_decode
 
         if self.use_patch_decode:
             self.patch_decode = ScaleDecode(
