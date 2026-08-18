@@ -9,7 +9,7 @@ import lightning as pl
 import torch.nn.functional as F
 import torch.distributed as dist
 
-from einops import rearrange, repeat
+from einops import rearrange
 from loguru import logger
 from lightning import Callback
 from ml_collections import ConfigDict
@@ -266,7 +266,7 @@ class PretrainTrainer(pl.LightningModule):
             # )
             # # spatial_affinity = self.rescale_affinity(spatial_affinity).unsqueeze(1)
             # outputs.append((spatial_affinity, spatial_full))
-            outputs.append((spatial_full,))
+            outputs.append((spatial_full.detach(),))
 
         return outputs
 
@@ -402,7 +402,9 @@ class PretrainTrainer(pl.LightningModule):
 
     def batch_to_loss(self, batch, train=False):
         with torch.no_grad():
-            teacher_outs = self._teacher_forward(batch["image"], p_d=self.model.patch_size[-1])
+            teacher_outs = self._teacher_forward(
+                batch["image"], p_d=self.model.patch_size[-1]
+            )
 
         image = self.preprocess_batch(batch, train)
 
@@ -415,6 +417,16 @@ class PretrainTrainer(pl.LightningModule):
         return self._distill_loss(teacher_outs, student_outs, recon, image, mask=mask)
 
     def on_fit_start(self) -> None:
+        self.teacher_model.eval()
+        for p in self.teacher_model.parameters():
+            p.requires_grad_(False)
+
+    def on_train_start(self) -> None:
+        self.teacher_model.eval()
+        for p in self.teacher_model.parameters():
+            p.requires_grad_(False)
+
+    def on_validation_epoch_start(self) -> None:
         self.teacher_model.eval()
         for p in self.teacher_model.parameters():
             p.requires_grad_(False)

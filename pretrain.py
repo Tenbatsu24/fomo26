@@ -160,7 +160,7 @@ def main():
         gpu_augmentations=gpu_transforms,
     )
 
-    run_name = "p-cos-n_rec-hub"
+    run_name = "p-cos-n"
     results_path = get_results_path()
 
     lr_monitor = LearningRateMonitor(logging_interval="step")
