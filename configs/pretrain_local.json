@@ -27,7 +27,7 @@
     "num_workers": 2,
     "num_samples": 250
   },
-  "distill_from": -6,
+  "distill_from": -1,
   "enable_aug": true,
   "optimizer": {
     "type": "AdamW",

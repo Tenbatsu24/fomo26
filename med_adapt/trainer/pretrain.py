@@ -229,40 +229,41 @@ class PretrainTrainer(pl.LightningModule):
             spatial_full = self.running_norm(
                 torch.cat(spatial_chunks, dim=-1)
             )  # [b c h_p w_p d]
-            # spatial_full = torch.cat(spatial_chunks, dim=-1)
-
-            *_, h_p, w_p, d = spatial_full.shape
-
-            cls_full = self.running_norm.normalize(
-                torch.cat(cls_chunks, dim=-1)
-            )  # [b c d]
-            # cls_full = torch.cat(cls_chunks, dim=-1)
-
-            x = F.normalize(
-                rearrange(cls_full, "b c d -> b d c"),
-                dim=-1,
-                eps=1e-6,
-            )
-            sim = x @ x.transpose(-1, -2)  # [b, d, d]
-            score = sim.mean(dim=-1)  # [b, d]
-            idx = score.argmax(dim=-1)  # [b]
-            cls_rep = torch.gather(
-                cls_full,
-                dim=2,
-                index=idx[:, None, None].expand(-1, cls_full.shape[1], 1),
-            )
-
-            spatial_affinity = F.cosine_similarity(
-                rearrange(spatial_full, "b c h_p w_p d -> (b d) c (h_p w_p)"),
-                repeat(cls_rep, "b c 1 -> (b d) c 1", d=d),
-                dim=1,
-                eps=1e-6,
-            )
-            spatial_affinity = rearrange(
-                spatial_affinity, "(b d) (h_p w_p) -> b 1 h_p w_p d", d=d, h_p=h_p
-            )
-            # spatial_affinity = self.rescale_affinity(spatial_affinity).unsqueeze(1)
-            outputs.append((spatial_affinity, spatial_full))
+            # # spatial_full = torch.cat(spatial_chunks, dim=-1)
+            #
+            # *_, h_p, w_p, d = spatial_full.shape
+            #
+            # cls_full = self.running_norm.normalize(
+            #     torch.cat(cls_chunks, dim=-1)
+            # )  # [b c d]
+            # # cls_full = torch.cat(cls_chunks, dim=-1)
+            #
+            # x = F.normalize(
+            #     rearrange(cls_full, "b c d -> b d c"),
+            #     dim=-1,
+            #     eps=1e-6,
+            # )
+            # sim = x @ x.transpose(-1, -2)  # [b, d, d]
+            # score = sim.mean(dim=-1)  # [b, d]
+            # idx = score.argmax(dim=-1)  # [b]
+            # cls_rep = torch.gather(
+            #     cls_full,
+            #     dim=2,
+            #     index=idx[:, None, None].expand(-1, cls_full.shape[1], 1),
+            # )
+            #
+            # spatial_affinity = F.cosine_similarity(
+            #     rearrange(spatial_full, "b c h_p w_p d -> (b d) c (h_p w_p)"),
+            #     repeat(cls_rep, "b c 1 -> (b d) c 1", d=d),
+            #     dim=1,
+            #     eps=1e-6,
+            # )
+            # spatial_affinity = rearrange(
+            #     spatial_affinity, "(b d) (h_p w_p) -> b 1 h_p w_p d", d=d, h_p=h_p
+            # )
+            # # spatial_affinity = self.rescale_affinity(spatial_affinity).unsqueeze(1)
+            # outputs.append((spatial_affinity, spatial_full))
+            outputs.append((spatial_full,))
 
         return outputs
 
@@ -286,25 +287,26 @@ class PretrainTrainer(pl.LightningModule):
             mask_3d = mask_3d.bool()
             mask_bool = mask_up.bool()
 
-        for (t_aff, t_patch), (s_cls, s_patch) in zip(teacher_out, student_out):
+        # for (t_aff, t_patch), (s_cls, s_patch) in zip(teacher_out, student_out):
+        for (*_, t_patch), (*_, s_patch) in zip(teacher_out, student_out):
             t_patch_interp = F.interpolate(
                 t_patch,
                 size=(s_patch.shape[2], s_patch.shape[3], s_patch.shape[4]),
                 mode="trilinear",
                 align_corners=False,
             )
-            t_aff_interp = F.interpolate(
-                t_aff,
-                size=(s_patch.shape[2], s_patch.shape[3], s_patch.shape[4]),
-                mode="trilinear",
-                align_corners=False,
-            ).squeeze(1)
+            # t_aff_interp = F.interpolate(
+            #     t_aff,
+            #     size=(s_patch.shape[2], s_patch.shape[3], s_patch.shape[4]),
+            #     mode="trilinear",
+            #     align_corners=False,
+            # ).squeeze(1)
 
-            s_aff = F.cosine_similarity(
-                s_patch, s_cls[..., None, None, None], dim=1, eps=1e-6
-            )
+            # s_aff = F.cosine_similarity(
+            #     s_patch, s_cls[..., None, None, None], dim=1, eps=1e-6
+            # )
 
-            affinity_matrix = (t_aff_interp - s_aff).square()
+            # affinity_matrix = (t_aff_interp - s_aff).square()
             t_pn, s_pn = F.normalize(t_patch_interp, p=2, eps=1e-6, dim=1), F.normalize(
                 s_patch, p=2, eps=1e-6, dim=1
             )
@@ -312,7 +314,7 @@ class PretrainTrainer(pl.LightningModule):
 
             if (mask_3d is None) or True:
                 token_total += 2 - 2 * cos_map.mean(dim=(1, 2, 3)).mean()
-                affinity_total += affinity_matrix.mean(dim=(1, 2, 3)).mean()
+                # affinity_total += affinity_matrix.mean(dim=(1, 2, 3)).mean()
             else:
                 num_masked_tok = mask_3d.sum(dim=(1, 2, 3))
                 has_masked_tok = num_masked_tok > 0
@@ -323,13 +325,14 @@ class PretrainTrainer(pl.LightningModule):
                 token_loss_per_sample = 2 - 2 * (masked_cos_sum / denom)
                 token_total += token_loss_per_sample.sum() / n_masked_samples
 
-                affinity_sum = (affinity_matrix * mask_3d).sum(dim=(1, 2, 3))
-                affinity_loss_per_sample = affinity_sum / denom
-                affinity_total += affinity_loss_per_sample.sum() / n_masked_samples
+                # affinity_sum = (affinity_matrix * mask_3d).sum(dim=(1, 2, 3))
+                # affinity_loss_per_sample = affinity_sum / denom
+                # affinity_total += affinity_loss_per_sample.sum() / n_masked_samples
 
         loss_dict = {
-            "loss": (affinity_total + token_total) / n,
-            "affinity_l2": affinity_total / n,
+            # "loss": (affinity_total + token_total) / n,
+            "loss": token_total / n,
+            # "affinity_l2": affinity_total / n,
             "token_cos": token_total / n,
         }
 
@@ -352,11 +355,11 @@ class PretrainTrainer(pl.LightningModule):
 
             huber = huber_per_sample[has_masked].mean()
 
-            loss_dict["loss"] += huber
+            loss_dict["loss"] += 0.1 * huber
             loss_dict["huber"] = huber
         elif recon is not None:
             huber = F.huber_loss(recon, volume, reduction="mean")
-            loss_dict["loss"] += huber
+            loss_dict["loss"] += 0.1 * huber
             loss_dict["huber"] = huber
 
         return loss_dict
