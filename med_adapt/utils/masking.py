@@ -256,13 +256,13 @@ def visualize_volume_mask(mask_keep):
 
 
 def main():
-    h, w, d = 14, 14, 16
+    h, w, d = 14, 14, 8
 
     masks = generate_masks(
         (h, w, d),
-        number_of_samples=4,
+        number_of_samples=8,
         mask_prob=1.0,
-        per_sample_range=(0.10, 0.20),
+        per_sample_range=(0.05, 0.15),
     )
 
     for mask in masks:

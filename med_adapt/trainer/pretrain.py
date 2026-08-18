@@ -263,22 +263,8 @@ class PretrainTrainer(pl.LightningModule):
     def _distill_loss(
         self, teacher_out, student_out, recon=None, volume=None, mask=None
     ):
-        affinity_total, token_total = 0.0, 0.0
+        affinity_total, token_cos_total, token_l2_total = 0.0, 0.0, 0.0
         n = len(teacher_out)
-
-        # Build voxel-space keep mask once when masking is active, so both
-        # cls and token cosine terms share the same spatial weighting.
-        mask_bool = None
-        # mask_3d = None
-
-        if mask is not None:
-            mask_3d = mask.unflatten(1, self.model.patch_embed.patches_resolution)
-            mask_up = torch.repeat_interleave(mask_3d, self.model.patch_size[0], dim=1)
-            mask_up = torch.repeat_interleave(mask_up, self.model.patch_size[1], dim=2)
-            mask_up = torch.repeat_interleave(mask_up, self.model.patch_size[2], dim=3)
-
-            # mask_3d = mask_3d.bool()
-            mask_bool = mask_up.bool()
 
         final_t_patch_interp = None
         for zip_idx, ((*_, t_patch), (*_, s_patch)) in enumerate(
@@ -293,58 +279,31 @@ class PretrainTrainer(pl.LightningModule):
             if zip_idx == n - 1:
                 final_t_patch_interp = t_patch_interp
 
+            token_l2 = (t_patch_interp - s_patch).square().mean()
+            token_l2_total += token_l2
+
             t_pn = F.normalize(t_patch_interp, p=2, eps=1e-6, dim=1)
             s_pn = F.normalize(s_patch, p=2, eps=1e-6, dim=1)
             cos_map = (t_pn * s_pn).sum(dim=1)  # (B, D', H', W')
+            token_cos_total += 2 - 2 * cos_map.mean(dim=(1, 2, 3)).mean()
 
-            token_total += 2 - 2 * cos_map.mean(dim=(1, 2, 3)).mean()
-            # else:
-            #     num_masked_tok = mask_3d.sum(dim=(1, 2, 3))
-            #     has_masked_tok = num_masked_tok > 0
-            #     denom = num_masked_tok.clamp(min=1)
-            #     n_masked_samples = has_masked_tok.sum().clamp(min=1)
-            #
-            #     masked_cos_sum = (cos_map * mask_3d).sum(dim=(1, 2, 3))
-            #     token_loss_per_sample = 2 - 2 * (masked_cos_sum / denom)
-            #     token_total += token_loss_per_sample.sum() / n_masked_samples
-
-        mean_token_cos = token_total / n
+        mean_token_cos = token_cos_total / n
+        mean_token_l2 = token_l2_total / n
 
         loss_dict = {
-            "loss": mean_token_cos,
+            "loss": mean_token_l2,
             "token_cos": mean_token_cos,
+            "token_l2": mean_token_l2,
             "angle": cosine_loss_to_angle_deg(mean_token_cos),
         }
 
         if recon is not None:
-            teacher_recon = self.model.patch_decode(final_t_patch_interp.detach())
-            t_huber = F.huber_loss(teacher_recon, volume, reduction="mean")
+            t_recon = self.model.patch_decode(final_t_patch_interp.detach())
+            t_huber = F.huber_loss(t_recon, volume, reduction="mean")
         else:
             t_huber = None
 
-        if recon is not None and mask is not None:
-            huber_per_elem = F.huber_loss(
-                recon,
-                volume,
-                reduction="none",
-            )  # [B, C, D, H, W]
-
-            # Average over channels first so mask matches dimensions.
-            huber_per_voxel = huber_per_elem.mean(dim=1)  # [B, D, H, W]
-
-            num_masked = mask_bool.sum(dim=(1, 2, 3))
-            has_masked = num_masked > 0
-
-            huber_per_sample = (huber_per_voxel * mask_bool).sum(
-                dim=(1, 2, 3)
-            ) / num_masked.clamp(min=1)
-
-            huber = huber_per_sample[has_masked].mean()
-
-            loss_dict["loss"] += 0.5 * (huber + t_huber)
-            loss_dict["huber"] = huber
-            loss_dict["t_huber"] = t_huber
-        elif recon is not None:
+        if recon is not None:
             huber = F.huber_loss(recon, volume, reduction="mean")
             loss_dict["loss"] += 0.5 * (huber + t_huber)
             loss_dict["huber"] = huber

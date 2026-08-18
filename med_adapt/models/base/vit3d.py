@@ -16,6 +16,20 @@ TUP3 = Tuple[int, int, int]
 INT_TUP3 = Union[int, TUP3]
 
 
+def set_requires_grad(module, value, original_values=None):
+    current_values = []
+
+    if original_values is not None:
+        for p, v in zip(module.parameters(), original_values):
+            p.requires_grad_(v)
+        return None
+    else:
+        for p in module.parameters():
+            current_values.append(p.requires_grad)
+            p.requires_grad_(value)
+    return current_values
+
+
 def _maybe_to_3_tuple(size, name="tuple"):
     if isinstance(size, tuple):
         if len(size) != 3:
@@ -160,7 +174,9 @@ class ViT3D(ViTv2):
                 outs.append((cls_token, patch_tokens))
 
         if self.use_patch_decode:
-            recon = self.patch_decode(outs[-1][-1].detach())
+            original_values = set_requires_grad(self.patch_decode, False)
+            recon = self.patch_decode(outs[-1][-1])
+            set_requires_grad(self.patch_decode, self.training, original_values)
         else:
             recon = None
 
