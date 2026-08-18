@@ -199,15 +199,19 @@ class PretrainTrainer(pl.LightningModule):
         actual_d = len(d_that_matter)
         slices_that_matter = volume[..., d_that_matter]
 
-        for d_start in range(0, actual_d, chunk_size):
+        chunked_ds = range(0, actual_d, chunk_size)
+
+        for d_start in chunked_ds:
             d_end = min(d_start + chunk_size, actual_d)
             vol_chunk = slices_that_matter[..., d_start:d_end]  # b c h w d_chunk
 
             vol_flat = rearrange(vol_chunk, "b c h w d -> (b d) c h w")
-            ch_min = vol_flat.min(dim=1, keepdim=True).values
-            ch_max = vol_flat.max(dim=1, keepdim=True).values
+            ch_min = vol_flat.amin(dim=(1, 2, 3), keepdim=True)
+            ch_max = vol_flat.amax(dim=(1, 2, 3), keepdim=True)
+
             denom = ch_max - ch_min
-            denom[denom == 0] = 1.0
+            denom = torch.where(denom < 1e-3, 1.0, denom)
+
             vol_norm = (vol_flat - ch_min) / denom
             vol_norm = (vol_norm - self.imagenet_mean) / self.imagenet_std
 

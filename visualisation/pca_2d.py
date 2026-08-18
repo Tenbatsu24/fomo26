@@ -34,6 +34,14 @@ def preprocess_volume(volume: torch.Tensor) -> torch.Tensor:
     else:
         raise ValueError(f"Expected 1 or 3 input channels, got {C}")
 
+    ch_min = vol.amin(dim=(0, 1, 2), keepdim=True)
+    ch_max = vol.amax(dim=(0, 1, 2), keepdim=True)
+
+    denom = ch_max - ch_min
+    denom = torch.where(denom == 0, 1.0, denom)
+
+    vol = (vol - ch_min) / denom
+
     vol = (vol - mean) / std
     return vol
 
@@ -95,14 +103,13 @@ def plot_volume_pca(
     from torchvision.transforms import Compose
 
     from med_adapt.registry import STORE
-    from med_adapt.augs import PadToShape3D, CenterCrop3D, MinMaxNorm
+    from med_adapt.augs import PadToShape3D, CenterCrop3D
 
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
 
     trnsfrms = Compose(
         [
-            MinMaxNorm(),
             PadToShape3D(size=crop_size, label_key=None),
             CenterCrop3D(size=crop_size, label_key=None),
         ]
