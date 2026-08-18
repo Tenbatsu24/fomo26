@@ -250,15 +250,8 @@ def plot_volume_pca_3d(
     # --- PCA-RGB panel ------------------------------------------------------
     fig_pca, axes_pca = plt.subplots(rows, cols, figsize=(cols * 5, rows * 4), dpi=150)
     axes_pca = np.asarray(axes_pca).reshape(-1)
-    fig_pca.suptitle(
-        "3-D ViT: Full-Volume Patch-Token PCA (whitened) per patch-depth slice",
-        fontsize=13,
-        fontweight="bold",
-        y=0.98,
-    )
     for i, (ax, pca_img, d_idx) in enumerate(zip(axes_pca, pca_images, slice_indices)):
         ax.imshow(pca_img, vmin=0, vmax=1)
-        ax.set_title(f"patch-depth z={d_idx}  ({ph}×{pw} patches)", fontsize=10)
         ax.set_xticks([])
         ax.set_yticks([])
     for j in range(n, len(axes_pca)):
@@ -273,12 +266,6 @@ def plot_volume_pca_3d(
         rows, cols, figsize=(cols * 5 + 1, rows * 4), dpi=150, constrained_layout=True
     )
     axes_cos = np.asarray(axes_cos).reshape(-1)
-    fig_cos.suptitle(
-        "3-D ViT: Patch-token ↔ CLS cosine similarity per patch-depth slice",
-        fontsize=13,
-        fontweight="bold",
-        y=0.98,
-    )
     all_cos = np.concatenate(cosine_images)
     global_cmin, global_cmax = all_cos.min(), all_cos.max()
 
@@ -292,7 +279,6 @@ def plot_volume_pca_3d(
             vmax=global_cmax,
             aspect="equal",
         )
-        ax.set_title(f"patch-depth z={d_idx}  ({ph}×{pw} patches)", fontsize=10)
         ax.set_xticks([])
         ax.set_yticks([])
     fig_cos.colorbar(im, ax=axes_cos.tolist(), shrink=0.8, label="cosine sim")
@@ -321,12 +307,6 @@ def plot_volume_pca_3d(
             constrained_layout=True,
         )
         axes_rec = np.asarray(axes_rec).reshape(rec_rows, rec_cols)
-        fig_rec.suptitle(
-            f"3-D ViT: Reconstructions per channel  (C={n_channels})",
-            fontsize=13,
-            fontweight="bold",
-            y=0.98,
-        )
 
         all_recon_slices: list[np.ndarray] = []
         for c in range(n_channels):

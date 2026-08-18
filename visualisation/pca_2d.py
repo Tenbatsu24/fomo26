@@ -170,11 +170,6 @@ def plot_volume_pca(
     # --- Fit PCA on the ENTIRE volume ---------------------------------------
     # Flatten spatial dims: [h_p * w_p * d_total, E]
     flat = all_patch_tokens.permute(3, 1, 2, 0).reshape(-1, E)
-    pca = PCA(n_components=3, whiten=whiten)
-    projected = pca.fit_transform(flat.cpu().numpy())  # [N_total, 3]
-    print(
-        f"PCA fitted on {projected.shape[0]} patches, explained variance: {pca.explained_variance_ratio_}"
-    )
 
     # --- Extract per-slice projections --------------------------------------
     pca_images: list[np.ndarray] = []
@@ -183,7 +178,12 @@ def plot_volume_pca(
     for slice_idx, d in enumerate(slice_indices):
         start = slice_idx * h_p * w_p
         end = start + h_p * w_p
-        slice_proj = projected[start:end]  # [h_p * w_p, 3]
+
+        pca = PCA(n_components=3, whiten=whiten)
+        slice_proj = pca.fit_transform(flat[start:end].cpu().numpy())  # [N_total, 3]
+        print(
+            f"PCA fitted on {slice_proj.shape[0]} patches, explained variance: {pca.explained_variance_ratio_}"
+        )
 
         # Min-max scale each component to [0, 1]
         pca_images.append(sigmoid(2 * slice_proj.reshape(h_p, w_p, 3)))
@@ -201,18 +201,8 @@ def plot_volume_pca(
 
     fig_pca, axes_pca = plt.subplots(rows, cols, figsize=(cols * 5, rows * 4), dpi=150)
     axes_pca = np.asarray(axes_pca).reshape(-1)
-    fig_pca.suptitle(
-        "2-D ViT: Full-Volume Patch-Token PCA (whitened) per depth slice",
-        fontsize=13,
-        fontweight="bold",
-        y=0.98,
-    )
     for i, (ax, pca_img, depth) in enumerate(zip(axes_pca, pca_images, slice_indices)):
         ax.imshow(pca_img, vmin=0, vmax=1)
-        ax.set_title(
-            f"depth z={depth}  ({pca_img.shape[0]}×{pca_img.shape[1]} patches)",
-            fontsize=10,
-        )
         ax.set_xticks([])
         ax.set_yticks([])
     for j in range(n, len(axes_pca)):
@@ -227,12 +217,6 @@ def plot_volume_pca(
         rows, cols, figsize=(cols * 5 + 1, rows * 4), dpi=150, constrained_layout=True
     )
     axes_cos = np.asarray(axes_cos).reshape(-1)
-    fig_cos.suptitle(
-        "2-D ViT: Patch-token ↔ CLS cosine similarity per depth slice",
-        fontsize=13,
-        fontweight="bold",
-        y=0.98,
-    )
     # Compute global vmin/vmax for a single shared colour bar
     all_cos = np.concatenate(cosine_images)
     global_cmin, global_cmax = all_cos.min(), all_cos.max()
@@ -246,10 +230,6 @@ def plot_volume_pca(
             vmin=global_cmin,
             vmax=global_cmax,
             aspect="equal",
-        )
-        ax.set_title(
-            f"depth z={depth}  ({cos_img.shape[0]}×{cos_img.shape[1]} patches)",
-            fontsize=10,
         )
         ax.set_xticks([])
         ax.set_yticks([])
