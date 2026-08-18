@@ -51,14 +51,6 @@ def load_model(
     """Build and load the 3-D ViT-S encoder from the checkpoint."""
     from med_adapt.models.base.vit3d import vitv2_3d_small
 
-    model = vitv2_3d_small(
-        volume_size=volume_size,
-        volume_patch_size=patch_size,
-        med_in_channels=med_in_channels,
-        use_patch_decode=False,
-        use_mask=False,
-    ).eval()
-
     ckpt = torch.load(checkpoint_path, map_location="cpu")
     if isinstance(ckpt, dict) and "state_dict" in ckpt:
         raw_sd = ckpt["state_dict"]
@@ -72,6 +64,14 @@ def load_model(
 
     if not model_sd:
         model_sd = {**raw_sd}
+
+    model = vitv2_3d_small(
+        volume_size=volume_size,
+        volume_patch_size=patch_size,
+        med_in_channels=med_in_channels,
+        use_patch_decode=any(["patch_decode" in k for k in model_sd]),
+        use_mask=any(["mask_token" in k for k in model_sd]),
+    ).eval()
 
     missing, unexpected = model.load_state_dict(model_sd, strict=False)
     if missing:
