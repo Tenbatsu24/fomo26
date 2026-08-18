@@ -229,11 +229,14 @@ class PretrainTrainer(pl.LightningModule):
             spatial_full = self.running_norm(
                 torch.cat(spatial_chunks, dim=-1)
             )  # [b c h_p w_p d]
+            # spatial_full = torch.cat(spatial_chunks, dim=-1)
+
             *_, h_p, w_p, d = spatial_full.shape
 
             cls_full = self.running_norm.normalize(
                 torch.cat(cls_chunks, dim=-1)
             )  # [b c d]
+            # cls_full = torch.cat(cls_chunks, dim=-1)
 
             x = F.normalize(
                 rearrange(cls_full, "b c d -> b d c"),
@@ -256,9 +259,9 @@ class PretrainTrainer(pl.LightningModule):
                 eps=1e-6,
             )
             spatial_affinity = rearrange(
-                spatial_affinity, "(b d) (h_p w_p) -> b h_p w_p d", d=d, h_p=h_p
+                spatial_affinity, "(b d) (h_p w_p) -> b 1 h_p w_p d", d=d, h_p=h_p
             )
-            spatial_affinity = self.rescale_affinity(spatial_affinity).unsqueeze(1)
+            # spatial_affinity = self.rescale_affinity(spatial_affinity).unsqueeze(1)
             outputs.append((spatial_affinity, spatial_full))
 
         return outputs
