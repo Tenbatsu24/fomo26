@@ -6,7 +6,7 @@
       14,
       2
     ],
-    "use_patch_decode": false,
+    "use_patch_decode": true,
     "use_mask": false,
     "mask": {
       "mask_prob": 1.0,
@@ -28,7 +28,7 @@
     "num_samples": 250
   },
   "distill_from": -1,
-  "enable_aug": true,
+  "enable_aug": false,
   "optimizer": {
     "type": "AdamW",
     "params": {

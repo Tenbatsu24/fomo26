@@ -55,6 +55,8 @@ def load_model(
         volume_size=volume_size,
         volume_patch_size=patch_size,
         med_in_channels=med_in_channels,
+        use_patch_decode=False,
+        use_mask=False,
     ).eval()
 
     ckpt = torch.load(checkpoint_path, map_location="cpu")

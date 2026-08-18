@@ -339,6 +339,13 @@ class PretrainTrainer(pl.LightningModule):
             "token_cos": token_total / n,
         }
 
+        if recon is not None:
+            teacher_patch = teacher_out[-1][-1]
+            teacher_recon = self.model.patch_decode(teacher_patch.detach())
+            t_huber = F.huber_loss(teacher_recon, volume, reduction="mean")
+        else:
+            t_huber = None
+
         if recon is not None and mask is not None:
             huber_per_elem = F.huber_loss(
                 recon,
@@ -358,12 +365,14 @@ class PretrainTrainer(pl.LightningModule):
 
             huber = huber_per_sample[has_masked].mean()
 
-            loss_dict["loss"] += 0.1 * huber
+            loss_dict["loss"] += 0.5 * (huber + t_huber)
             loss_dict["huber"] = huber
+            loss_dict["t_huber"] = t_huber
         elif recon is not None:
             huber = F.huber_loss(recon, volume, reduction="mean")
-            loss_dict["loss"] += 0.1 * huber
+            loss_dict["loss"] += 0.5 * (huber + t_huber)
             loss_dict["huber"] = huber
+            loss_dict["t_huber"] = t_huber
 
         return loss_dict
 
