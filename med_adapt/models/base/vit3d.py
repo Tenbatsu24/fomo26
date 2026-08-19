@@ -47,9 +47,9 @@ class ViT3D(ViTv2):
 
     def __init__(
         self,
-        volume_size,
-        volume_patch_size,
-        med_in_channels,
+        volume_size=(224, 224, 128),
+        volume_patch_size=(14, 14, 8),
+        med_in_channels=1,
         use_patch_decode=True,
         use_mask=True,
         *args,
