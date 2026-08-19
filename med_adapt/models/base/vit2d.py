@@ -6,12 +6,12 @@
 import math
 
 from functools import partial
-from typing import Sequence, Tuple, Union, Callable, Any
+from typing import Callable, Any
 
 import torch
 import torch.nn as nn
 import torch.utils.checkpoint
-from torch.nn import Parameter, Module
+from torch.nn import Parameter
 
 from torch.nn.init import trunc_normal_
 from torch.nn.functional import interpolate
