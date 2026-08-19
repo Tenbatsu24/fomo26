@@ -1,6 +1,6 @@
 {
   "model": {
-    "size": "small",
+    "size": "base",
     "volume_patch_size": [
       14,
       14,
@@ -14,7 +14,7 @@
     }
   },
   "pretrained": {
-    "checkpoint": "small/neco/encoder_teacher.ckpt"
+    "checkpoint": "base/neco/encoder_teacher.ckpt"
   },
   "data": {
     "dataset_name": "OpenMind",
@@ -23,7 +23,7 @@
       224,
       128
     ],
-    "batch_size": 2,
+    "batch_size": 1,
     "num_workers": 8,
     "num_samples": 1000
   },
@@ -58,7 +58,7 @@
   "scheduler": [
     [
       "lr",
-      "CatSched(LinSched(1e-5, 5e-3), CosSched(5e-3, 1e-6), 0.05)"
+      "CatSched(LinSched(1e-5, 2e-3), CosSched(2e-3, 1e-6), 0.05)"
     ],
     [
       "weight_decay",
