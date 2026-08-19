@@ -181,32 +181,6 @@ class PretrainTrainer(pl.LightningModule):
         image = batch["image"]
         return image
 
-    def rescale_affinity(self, spatial_affinity):
-        lo = torch.quantile(
-            spatial_affinity.flatten(1),
-            0.01,
-            dim=1,
-            keepdim=True,
-        ).view(-1, 1, 1, 1)
-
-        hi = torch.quantile(
-            spatial_affinity.flatten(1),
-            0.99,
-            dim=1,
-            keepdim=True,
-        ).view(-1, 1, 1, 1)
-
-        # Scale using percentile range
-        denom = hi - lo
-
-        spatial_affinity = torch.where(
-            denom > 0,
-            2.0 * ((spatial_affinity - lo) / denom) - 1.0,
-            torch.zeros_like(spatial_affinity),
-        )
-
-        return spatial_affinity.clamp(-1.0, 1.0)
-
     def _teacher_forward(self, volume: torch.Tensor, chunk_size=16):
         b, c, h, w, d = volume.shape
         layer_outputs = (
@@ -222,7 +196,7 @@ class PretrainTrainer(pl.LightningModule):
             ch_max = vol_flat.amax(dim=(1, 2, 3), keepdim=True)
 
             denom = ch_max - ch_min
-            denom = torch.where(denom < 1e-3, 1.0, denom)
+            denom = torch.where(denom < 1e-2, 1.0, denom)
 
             vol_norm = (vol_flat - ch_min) / denom
             vol_norm = (vol_norm - self.imagenet_mean) / self.imagenet_std
@@ -257,7 +231,9 @@ class PretrainTrainer(pl.LightningModule):
         affinity_total, token_cos_total, token_l2_total = 0.0, 0.0, 0.0
         n = len(teacher_out)
 
+        bad_for_recon = False
         final_t_patch_interp = None
+
         for zip_idx, ((*_, t_patch), (*_, s_patch)) in enumerate(
             zip(teacher_out, student_out)
         ):
@@ -267,10 +243,19 @@ class PretrainTrainer(pl.LightningModule):
                 mode="trilinear",
                 align_corners=False,
             )
+            bad = torch.any(~torch.isfinite(t_patch_interp))
+
             if zip_idx == n - 1:
+                bad_for_recon = bad
                 final_t_patch_interp = t_patch_interp
 
-            token_l2 = (t_patch_interp - s_patch).square().mean()
+            if bad:
+                token_l2 = (
+                    (torch.randn_like(s_patch) - s_patch).square().mean()
+                )  # random better than non finite
+            else:
+                token_l2 = (t_patch_interp - s_patch).square().mean()
+
             token_l2_total += token_l2
 
             t_pn = F.normalize(t_patch_interp, p=2, eps=1e-6, dim=1)
@@ -289,7 +274,10 @@ class PretrainTrainer(pl.LightningModule):
         }
 
         if recon is not None:
-            t_recon = self.model.patch_decode(final_t_patch_interp.detach())
+            if bad_for_recon:
+                t_recon = torch.randn_like(volume)
+            else:
+                t_recon = self.model.patch_decode(final_t_patch_interp.detach())
             t_huber = F.huber_loss(t_recon, volume, reduction="mean")
         else:
             t_huber = None
@@ -300,15 +288,9 @@ class PretrainTrainer(pl.LightningModule):
             loss_dict["huber"] = huber
             loss_dict["t_huber"] = t_huber
 
-        bad = (~torch.isfinite(loss_dict["loss"])).float()
-
-        # Synchronize the decision
-        bad = self.all_gather(bad).max()
-
-        if bad > 0:
+        if bad_for_recon:
             self.nan_counter += 1
-            self.log("train/nan", self.nan_counter, sync_dist=True)
-            return None
+            loss_dict["nan"] = self.nan_counter
 
         return loss_dict
 
