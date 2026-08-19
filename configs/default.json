@@ -1,6 +1,6 @@
 {
   "model": {
-    "variant": "2d",
+    "variant": "3d",
     "size": "small",
     "lora": true,
     "query_from": -6
@@ -11,8 +11,8 @@
   "data": {
     "dataset_name": "CLS002_FOMO26_Infarct",
     "crop_size": [
-      256,
-      256,
+      224,
+      224,
       32
     ],
     "volume_patch_size": [
@@ -22,12 +22,7 @@
     ],
     "batch_size": 2,
     "num_workers": 2,
-    "resample_spacing": null,
-    "resize_to": [
-      284,
-      284,
-      48
-    ]
+    "resample_spacing": "median"
   },
   "enable_aug": true,
   "optimizer": {
@@ -59,7 +54,7 @@
   "scheduler": [
     [
       "lr",
-      "CatSched(LinSched(2e-5, 2e-3), CosSched(2e-3, 2e-6), 5)"
+      "CatSched(LinSched(2e-8, 2e-5), CosSched(2e-5, 0.0), 0.05)"
     ],
     [
       "weight_decay",
