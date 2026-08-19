@@ -46,6 +46,7 @@ class TemplateTrainer(pl.LightningModule):
         config: ConfigDict,
         model: torch.nn.Module,
         gpu_augmentations=default_disable_aug,
+        normalisation: torch.nn.Module | None = None,
     ):
         super().__init__()
 
@@ -59,6 +60,7 @@ class TemplateTrainer(pl.LightningModule):
 
         self.config = config
         self.gpu_aug = gpu_augmentations
+        self.normalisation = normalisation
         self.criterion = self.make_criterion()
         self.num_classes: int = self.config.num_classes
 
@@ -116,6 +118,9 @@ class TemplateTrainer(pl.LightningModule):
             unexp=unexpected,
         )
 
+    # ------------------------------------------------------------------
+    # Optimiser / scheduler
+    # ------------------------------------------------------------------
     def get_modules_for_opt(self):
         return [self.model]
 
@@ -145,6 +150,10 @@ class TemplateTrainer(pl.LightningModule):
                     )
         return [opt], scheduler
 
+    # ------------------------------------------------------------------
+    # Loss / metrics factories
+    # ------------------------------------------------------------------
+
     def make_criterion(self):
         """Create the loss function. Override in subclass."""
         loss_cfg = self.config.loss
@@ -163,9 +172,14 @@ class TemplateTrainer(pl.LightningModule):
             for short_name, m in metrics_cfg.items()
         }
 
+    # ------------------------------------------------------------------
+    # Forward / batch helpers
+    # ------------------------------------------------------------------
     def preprocess_batch(self, batch, train: bool) -> tuple[Any, Any]:
         if train and self.gpu_aug is not None:
             batch = self.gpu_aug(batch)
+        if self.normalisation is not None:
+            batch = self.normalisation(batch)
 
         image, label = batch["image"], batch["label"]
         return image, label
@@ -204,6 +218,10 @@ class TemplateTrainer(pl.LightningModule):
 
         return total_loss, (logits, label)
 
+    # ------------------------------------------------------------------
+    # Logging helpers
+    # ------------------------------------------------------------------
+
     def log_loss(self, loss, prefix, prog_bar, on_epoch, on_step):
         if isinstance(loss, dict):
             for key, value in loss.items():
@@ -234,6 +252,10 @@ class TemplateTrainer(pl.LightningModule):
             if not torch.all(torch.isnan(v))
         }
         self.log_dict(metric_dict, prog_bar=True, on_epoch=False, on_step=True)
+
+    # ------------------------------------------------------------------
+    # Training / validation / test steps
+    # ------------------------------------------------------------------
 
     def training_step(self, batch, batch_idx):
         loss, for_metrics = self.batch_to_loss(batch, train=True)
@@ -301,6 +323,10 @@ class TemplateTrainer(pl.LightningModule):
             sync_dist=True,
         )
         self.test_metrics.reset()
+
+    # ------------------------------------------------------------------
+    # Optimizer configuration
+    # ------------------------------------------------------------------
 
     def configure_optimizers(self):
         return self.optims, []

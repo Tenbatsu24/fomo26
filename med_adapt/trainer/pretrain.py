@@ -361,14 +361,19 @@ class PretrainTrainer(pl.LightningModule):
     def log_loss(self, loss, prefix, prog_bar, on_epoch, on_step):
         if isinstance(loss, dict):
             for key, value in loss.items():
-                self.log(
-                    f"{prefix}/{key}",
-                    value.detach(),
-                    prog_bar=prog_bar,
-                    on_epoch=on_epoch,
-                    on_step=on_step,
-                    sync_dist=on_epoch,
-                )
+                if (
+                    isinstance(value, torch.Tensor)
+                    or isinstance(value, float)
+                    or isinstance(value, int)
+                ):
+                    self.log(
+                        f"{prefix}/{key}",
+                        value if isinstance(value, torch.Tensor) else value,
+                        prog_bar=prog_bar,
+                        on_epoch=on_epoch,
+                        on_step=on_step,
+                        sync_dist=on_epoch,
+                    )
             return loss["loss"]
         else:
             self.log(
