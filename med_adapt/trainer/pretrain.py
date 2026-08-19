@@ -309,7 +309,12 @@ class PretrainTrainer(pl.LightningModule):
             self.nan_counter += 1
 
         if was_problem:
-            loss_dict["problem_item"] = batch["index"]
+            print("=" * 25)
+            print()
+            print(f"{self.nan_counter=}")
+            print(batch["index"])
+            print()
+            print("=" * 25)
 
         loss_dict["min"] = min_
         loss_dict["max"] = max_
@@ -334,10 +339,7 @@ class PretrainTrainer(pl.LightningModule):
     def log_loss(self, loss, prefix, prog_bar, on_epoch, on_step):
         if isinstance(loss, dict):
             for key, value in loss.items():
-                if "problem_item" in key:
-                    for bleh, index in enumerate(value):
-                        self.logger.log_metrics({f"{prefix}/{key}": index})
-                elif (
+                if (
                     isinstance(value, torch.Tensor)
                     or isinstance(value, float)
                     or isinstance(value, int)
