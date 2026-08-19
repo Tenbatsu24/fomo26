@@ -27,6 +27,7 @@ from med_adapt.augs import (
     RandomResizedCrop3D,
     CenterCrop3D,
     RandomSwapSpatialDims3D,
+    RandomFlipSpatialDims3D,
 )
 from med_adapt.trainer import PretrainTrainer
 
@@ -69,6 +70,7 @@ def build_cpu_transforms(crop_size, training, task):
     if training:
         tforms = [
             RandomSwapSpatialDims3D(p=0.5, label_key=label_key),
+            RandomFlipSpatialDims3D(p=0.5, label_key=label_key),
             PadToShape3D(crop_size, label_key=label_key),
             RandomResizedCrop3D(crop_size, label_key=label_key),
         ]

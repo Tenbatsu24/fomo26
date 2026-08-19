@@ -39,7 +39,7 @@
   },
   "trainer": {
     "accelerator": "auto",
-    "accumulate_grad_batches": 2,
+    "accumulate_grad_batches": 1,
     "benchmark": true,
     "deterministic": false,
     "devices": "auto",
@@ -50,7 +50,7 @@
     "precision": "bf16-mixed",
     "strategy": "auto",
     "sync_batchnorm": false,
-    "val_check_interval": {"minutes": 60},
+    "val_check_interval": {"minutes": 30},
     "check_val_every_n_epoch": null,
     "limit_val_batches": 20,
     "log_every_n_steps": 25

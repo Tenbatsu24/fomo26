@@ -1,3 +1,5 @@
+import random
+
 import torch
 import torch.nn.functional as F
 
@@ -247,9 +249,6 @@ class CenterCrop3D:
         return out
 
 
-import random
-
-
 class RandomSwapSpatialDims3D:
 
     def __init__(self, p=0.5, label_key=None):
@@ -294,5 +293,47 @@ class RandomSwapSpatialDims3D:
 
             if isinstance(label, torch.Tensor) and label.shape[-3:] == (H, W, D):
                 out["label"] = self._apply(label, perm)
+
+        return out
+
+
+class RandomFlipSpatialDims3D:
+    """
+    Randomly flips a 3D volume along H, W, and/or D.
+
+    Args:
+        p (float): probability of considering each axis for flipping.
+        label_key (str | None): apply the same flip to the label if present.
+    """
+
+    def __init__(self, p=0.5, label_key=None):
+        self.p = p
+        self.label_key = label_key
+
+    def _apply(self, x, dims):
+        return torch.flip(x, dims=dims)
+
+    def __call__(self, sample):
+        image = sample["image"]
+
+        # spatial dims are always the last 3 dims
+        spatial_dims = [-3, -2, -1]
+
+        flip_dims = [d for d in spatial_dims if random.random() < self.p]
+
+        if not flip_dims:
+            return sample
+
+        H, W, D = image.shape[-3:]
+
+        out = dict(sample)
+
+        out["image"] = self._apply(image, flip_dims)
+
+        if self.label_key is not None and self.label_key in sample:
+            label = sample[self.label_key]
+
+            if isinstance(label, torch.Tensor) and label.shape[-3:] == (H, W, D):
+                out[self.label_key] = self._apply(label, flip_dims)
 
         return out

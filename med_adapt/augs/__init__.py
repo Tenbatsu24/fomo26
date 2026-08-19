@@ -4,6 +4,7 @@ from .custom import (
     RandomResizedCrop3D,
     CenterCrop3D,
     RandomSwapSpatialDims3D,
+    RandomFlipSpatialDims3D,
 )
 
 __all__ = [
@@ -14,4 +15,5 @@ __all__ = [
     "RandomResizedCrop3D",
     "CenterCrop3D",
     "RandomSwapSpatialDims3D",
+    "RandomFlipSpatialDims3D",
 ]
