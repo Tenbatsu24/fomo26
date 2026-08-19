@@ -17,8 +17,8 @@ from scipy.ndimage import zoom
 
 def _percentile_minmax(
     image: np.ndarray,
-    lower: float = 0.5,
-    upper: float = 99.5,
+    lower: float = 1.0,
+    upper: float = 99.0,
 ):
     """
     Percentile clipping followed by z-score normalization.
@@ -53,8 +53,8 @@ def _percentile_minmax(
     mid_ = (hi + lo) / 2.0
     range_ = hi - lo
 
-    if range_ > 0.5:
-        image = 2 * (image - mid_) / range_
+    if range_ > 0.1:
+        image = 4 * (image - mid_) / range_
     else:
         image = image - mid_
 
