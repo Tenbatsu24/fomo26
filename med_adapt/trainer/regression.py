@@ -17,11 +17,10 @@ class RegressionTrainer(TemplateTrainer):
         config: ConfigDict,
         model,
         gpu_augmentations,
-        normalisation: Optional[torch.nn.Module] = None,
     ):
         config["loss"] = {"type": "huber"}
         config["metrics"] = {"l2": {"type": "rmse"}}
-        super().__init__(config, model, gpu_augmentations, normalisation)
+        super().__init__(config, model, gpu_augmentations)
 
     def batch_to_loss(self, batch, train=False):
         image, label = self.preprocess_batch(batch, train)
