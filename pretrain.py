@@ -158,14 +158,14 @@ def main():
         gpu_augmentations=gpu_transforms,
     )
 
-    run_name = "p_l2_n-t_r-s_nog-mask"
+    run_name = f"{config.model.size}"
     results_path = get_results_path()
 
     lr_monitor = LearningRateMonitor(logging_interval="step")
     # csv_logger = CSVLogger(results_path, name=f"{run_name}")
     wandb_logger = WandbLogger(run_name, save_dir=results_path, project="fomo26")
 
-    model_dir = Path(results_path) / run_name / "base"
+    model_dir = Path(results_path) / run_name / "version_0"
     print(model_dir)
 
     checkpoint_callback = ModelCheckpoint(
