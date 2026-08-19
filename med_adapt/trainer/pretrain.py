@@ -361,14 +361,19 @@ class PretrainTrainer(pl.LightningModule):
     def log_loss(self, loss, prefix, prog_bar, on_epoch, on_step):
         if isinstance(loss, dict):
             for key, value in loss.items():
-                self.log(
-                    f"{prefix}/{key}",
-                    value.detach(),
-                    prog_bar=prog_bar,
-                    on_epoch=on_epoch,
-                    on_step=on_step,
-                    sync_dist=on_epoch,
-                )
+                if (
+                    isinstance(value, torch.Tensor)
+                    or isinstance(value, float)
+                    or isinstance(value, int)
+                ):
+                    self.log(
+                        f"{prefix}/{key}",
+                        value if isinstance(value, torch.Tensor) else value,
+                        prog_bar=prog_bar,
+                        on_epoch=on_epoch,
+                        on_step=on_step,
+                        sync_dist=on_epoch,
+                    )
             return loss["loss"]
         else:
             self.log(
@@ -383,23 +388,15 @@ class PretrainTrainer(pl.LightningModule):
 
     def training_step(self, batch, batch_idx):
         loss = self.batch_to_loss(batch, train=True)
-        if loss is not None:
-            loss = self.log_loss(
-                loss, prefix="train", prog_bar=True, on_epoch=False, on_step=True
-            )
-            return loss["loss"] if isinstance(loss, dict) else loss
-        else:
-            return None
+        return self.log_loss(
+            loss, prefix="train", prog_bar=True, on_epoch=False, on_step=True
+        )
 
     def validation_step(self, batch, batch_idx):
         loss = self.batch_to_loss(batch, train=False)
-        if loss is not None:
-            loss = self.log_loss(
-                loss, prefix="val", prog_bar=True, on_epoch=True, on_step=False
-            )
-            return loss
-        else:
-            return None
+        return self.log_loss(
+            loss, prefix="val", prog_bar=True, on_epoch=True, on_step=False
+        )
 
     def configure_optimizers(self):
         return self.optims, []
