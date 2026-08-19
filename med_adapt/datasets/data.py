@@ -17,6 +17,7 @@ from .io import (
     normalize_subject_name,
     read_labels,
     resample_nifti,
+    resample_volume,
     resize_volume,
 )
 from .statistics import (
