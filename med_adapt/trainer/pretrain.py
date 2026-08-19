@@ -81,6 +81,7 @@ class PretrainTrainer(pl.LightningModule):
         self.gpu_aug = gpu_augmentations
         self.normalisation = normalisation
         self.distill_from = self.config.distill_from
+        self.nan_counter = 0
 
         self.model = model
         self.teacher_model = teacher_model
