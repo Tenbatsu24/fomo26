@@ -140,10 +140,8 @@ def main():
         dataset_class=dataset_class,
         root=data_root,
         split_seed=seed,
-        sampler_seed=seed,
         batch_size=config.data.batch_size,
         num_workers=config.data.num_workers,
-        num_train_samples=config.data.num_samples * config.data.batch_size,
         train_transforms=train_cpu_transforms,
         val_transforms=val_cpu_transforms,
     )

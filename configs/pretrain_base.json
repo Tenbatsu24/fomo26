@@ -24,8 +24,7 @@
       128
     ],
     "batch_size": 1,
-    "num_workers": 8,
-    "num_samples": 1000
+    "num_workers": 8
   },
   "distill_from": -1,
   "enable_aug": false,
@@ -40,20 +39,21 @@
   },
   "trainer": {
     "accelerator": "auto",
-    "accumulate_grad_batches": 1,
+    "accumulate_grad_batches": 4,
     "benchmark": true,
     "deterministic": false,
     "devices": "auto",
     "gradient_clip_val": 0.5,
-    "max_epochs": 100,
+    "max_steps": 100000,
     "num_nodes": 1,
     "num_sanity_val_steps": 0,
     "precision": "bf16-mixed",
     "strategy": "auto",
     "sync_batchnorm": false,
-    "check_val_every_n_epoch": 1,
-    "limit_val_batches": 10,
-    "log_every_n_steps": 5
+    "val_check_interval": {"minutes": 30},
+    "check_val_every_n_epoch": null,
+    "limit_val_batches": 20,
+    "log_every_n_steps": 25
   },
   "scheduler": [
     [

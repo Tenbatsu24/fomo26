@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import random
 from pathlib import Path
 from typing import Optional
 
@@ -7,8 +8,10 @@ import blosc2
 import numpy as np
 import pandas as pd
 import torch
+import torch.distributed as dist
 
-from torch.utils.data import Dataset
+from torch.utils.data import get_worker_info
+from torch.utils.data import IterableDataset
 from sklearn.model_selection import train_test_split
 
 from med_adapt.registry import register_dataset
@@ -16,7 +19,8 @@ from med_adapt.datasets.io import _percentile_zscore
 
 
 @register_dataset("OpenMind")
-class OpenNeuroDataset(Dataset):
+class OpenNeuroDataset(IterableDataset):
+
     FOLDER_NAME: str = "Dataset745_OpenMind"
 
     TASK_NAME: str = "OpenNeuro"
@@ -133,6 +137,33 @@ class OpenNeuroDataset(Dataset):
         if self.transform is not None:
             sample = self.transform(sample)
         return sample
+
+    def __iter__(self):
+        world_size = dist.get_world_size() if dist.is_initialized() else 1
+        rank = dist.get_rank() if dist.is_initialized() else 0
+
+        worker_info = get_worker_info()
+
+        if worker_info is None:
+            worker_id = 0
+            num_workers = 1
+        else:
+            worker_id = worker_info.id
+            num_workers = worker_info.num_workers
+
+        global_workers = world_size * num_workers
+        global_worker_id = rank * num_workers + worker_id
+
+        rng = random.Random(self.seed)
+
+        while True:
+            indices = list(range(len(self)))
+
+            if self.split == "train":
+                rng.shuffle(indices)
+
+            for idx in indices[global_worker_id::global_workers]:
+                yield self[idx]
 
 
 def save_gallery(loader, filename="gallery.png", n_examples=16):

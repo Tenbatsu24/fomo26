@@ -94,14 +94,12 @@ def build_pretrain_dataloaders(
     batch_size,
     num_workers,
     split_seed=42,
-    sampler_seed=42,
-    num_train_samples=None,
     train_transforms=None,
     val_transforms=None,
 ):
     from torch.utils.data import DataLoader
 
-    from med_adapt.datasets.sampler import RandomSampler
+    num_workers = max(2, num_workers)
 
     tr_ds = dataset_class(
         root=root,
@@ -110,12 +108,9 @@ def build_pretrain_dataloaders(
         transform=train_transforms,
     )
 
-    sampler = RandomSampler(tr_ds, seed=sampler_seed, num_samples=num_train_samples)
-
     tr_dl = DataLoader(
         tr_ds,
         batch_size=batch_size,
-        sampler=sampler,
         num_workers=num_workers,
         pin_memory=True,
         drop_last=True,
@@ -129,8 +124,8 @@ def build_pretrain_dataloaders(
     val_dl = DataLoader(
         val_ds,
         batch_size=batch_size,
-        num_workers=2,
-        pin_memory=False,
+        num_workers=num_workers,
+        pin_memory=True,
         drop_last=False,
         persistent_workers=True,
     )
