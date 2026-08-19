@@ -55,7 +55,7 @@ def _percentile_zscore(
     mean = values.mean()
     std = values.std()
 
-    if std > 0:
+    if std > 0.1:
         image = (image - mean) / std
     else:
         image = image - mean

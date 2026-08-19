@@ -196,7 +196,7 @@ class PretrainTrainer(pl.LightningModule):
             ch_max = vol_flat.amax(dim=(1, 2, 3), keepdim=True)
 
             denom = ch_max - ch_min
-            denom = torch.where(denom < 1e-2, 1.0, denom)
+            denom = torch.where(denom < 0.1, 1.0, denom)
 
             vol_norm = (vol_flat - ch_min) / denom
             vol_norm = (vol_norm - self.imagenet_mean) / self.imagenet_std

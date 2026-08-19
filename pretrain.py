@@ -167,7 +167,7 @@ def main():
     # csv_logger = CSVLogger(results_path, name=f"{run_name}")
     wandb_logger = WandbLogger(run_name, save_dir=results_path, project="fomo26")
 
-    model_dir = Path(results_path) / run_name / "version_1"
+    model_dir = Path(results_path) / run_name / "version_2"
     print(model_dir)
 
     checkpoint_callback = ModelCheckpoint(
