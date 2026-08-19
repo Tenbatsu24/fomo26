@@ -44,7 +44,7 @@
     "deterministic": false,
     "devices": "auto",
     "gradient_clip_val": 0.5,
-    "max_steps": 100000,
+    "max_steps": 25000,
     "num_nodes": 1,
     "num_sanity_val_steps": 0,
     "precision": "bf16-mixed",
