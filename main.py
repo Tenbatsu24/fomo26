@@ -15,12 +15,8 @@ import lightning as pl
 from torchvision import transforms
 from lightning.pytorch.loggers import CSVLogger
 from lightning.pytorch.callbacks import ModelCheckpoint, LearningRateMonitor
-from gardening_tools.modules.transforms.cropping_and_padding import (
-    Torch_CropPad,
-    Torch_Pad,
-    Torch_CenterCrop,
-)
 
+from med_adapt.augs import CenterCrop3D
 from med_adapt.registry import STORE
 from med_adapt.utils.naming import get_run_name
 from med_adapt.datasets import build_dataloaders
@@ -29,8 +25,12 @@ from med_adapt.utils.paths import get_results_path, get_data_path
 from med_adapt.augs.default import (
     default_enable_aug,
     default_disable_aug,
-    default_norm,
-    Torch_Resize,
+)
+from med_adapt.augs.custom import (
+    RandomResizedCrop3D,
+    PadToShape3D,
+    RandomSwapSpatialDims3D,
+    RandomFlipSpatialDims3D,
 )
 from med_adapt.trainer import (
     ClassificationTrainer,
@@ -91,17 +91,21 @@ def get_task_from_dataset_name(dataset_name: str) -> str:
         raise ValueError(f"Cannot infer task from dataset name: {dataset_name}")
 
 
-def build_cpu_transforms(crop_size, training, task, resize_to=None):
+def build_cpu_transforms(crop_size, training, task):
     """Build CPU-side crop/pad/resize transforms."""
     label_key = "label" if task == "segmentation" else None
-    tforms = []
-    if resize_to is not None:
-        tforms.append(Torch_Resize(label_key=label_key, target_size=resize_to))
     if training:
-        tforms.append(Torch_CropPad(label_key=label_key, patch_size=crop_size))
+        tforms = [
+            RandomSwapSpatialDims3D(label_key=label_key),
+            RandomFlipSpatialDims3D(label_key=label_key),
+            RandomResizedCrop3D(size=crop_size, label_key=label_key),
+            PadToShape3D(size=crop_size, label_key=label_key),
+        ]
     else:
-        tforms.append(Torch_Pad(label_key=label_key, patch_size=crop_size))
-        tforms.append(Torch_CenterCrop(label_key=label_key, target_size=crop_size))
+        tforms = [
+            PadToShape3D(size=crop_size, label_key=label_key),
+            CenterCrop3D(size=crop_size, label_key=label_key),
+        ]
     return transforms.Compose(tforms) if tforms else None
 
 
@@ -126,8 +130,6 @@ def build_model(config, task, n_modalities, n_classes, lora, mea):
         )
     else:
         return builder(
-            volume_size=tuple(config.data.crop_size),
-            volume_patch_size=tuple(config.data.volume_patch_size),
             med_in_channels=n_modalities,
             task=task,
             classes=n_classes,
@@ -147,12 +149,10 @@ def export_model_to_onnx(
 ):
     import torch.onnx
 
-    # 1. Load checkpoint
     ckpt = torch.load(checkpoint_path, map_location="cpu")
     if isinstance(ckpt, dict) and "state_dict" in ckpt:
         ckpt = ckpt["state_dict"]
 
-    # 2. Convert LoRA naming → plain naming
     if config.model.lora:
         ckpt = convert_state_dict(ckpt, to_lora=False)
         logger.info(
@@ -160,10 +160,8 @@ def export_model_to_onnx(
             name=checkpoint_name,
         )
 
-    # 3. Build plain model (no LoRA, no MemEffAttention)
     model = build_model(config, task, n_modalities, n_classes, lora=False, mea=False)
 
-    # 4. Load with strict check
     result = model.load_state_dict(
         {
             (k.replace("model.", "") if k.startswith("model.") else k): v
@@ -186,7 +184,6 @@ def export_model_to_onnx(
 
     model.eval()
 
-    # 5. Export
     crop_size = tuple(config.data.crop_size)
     dummy_input = torch.randn(1, n_modalities, crop_size[0], crop_size[1], crop_size[2])
     onnx_path = run_dir / f"{checkpoint_name}.onnx"
@@ -314,7 +311,6 @@ def run_test_mode(
         config=config,
         model=model,
         gpu_augmentations=default_disable_aug(ndim=3),
-        normalisation=default_norm(),
     )
 
     # Export the final model to ONNX before running test.
@@ -426,13 +422,10 @@ def main():
     else:
         gpu_transforms = default_disable_aug(ndim=3)
 
-    norm_transforms = default_norm()
-
     trainer = TRAINER_CLASSES[task](
         config=config,
         model=model,
         gpu_augmentations=gpu_transforms,
-        normalisation=norm_transforms,
     )
 
     run_name = get_run_name(

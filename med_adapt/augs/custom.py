@@ -4,6 +4,48 @@ import torch
 import torch.nn.functional as F
 
 
+class Resize3D:
+    """Resize the entire 3D volume to a fixed target shape on the CPU."""
+
+    def __init__(
+        self,
+        data_key="image",
+        label_key="label",
+        target_size: tuple | list = None,
+    ):
+        self.data_key = data_key
+        self.label_key = label_key
+        self.target_size = tuple(target_size) if target_size else None
+
+    def __call__(self, data_dict):
+        image = data_dict[self.data_key]
+        if self.target_size is not None:
+            # image shape: (C, H, W, D) -> interpolate expects (N, C, D, H, W)
+            resized = torch.nn.functional.interpolate(
+                image.unsqueeze(0),
+                size=self.target_size,
+                mode="trilinear",
+                align_corners=False,
+            ).squeeze(0)
+            # resized: (C, target_D, target_H, target_W) -> back to (C, target_H, target_W, target_D)
+            data_dict[self.data_key] = resized
+
+        if data_dict.get(self.label_key) is not None and self.target_size is not None:
+            label = data_dict[self.label_key]
+            # label shape: (H, W, D) -> (N, C, D, H, W) for interpolate
+            # Cast to float for interpolate, then back to original dtype.
+            label_float = label.to(dtype=torch.float32)
+            resized_label = torch.nn.functional.interpolate(
+                label_float.unsqueeze(0),
+                size=self.target_size,
+                mode="nearest",
+            ).squeeze(0)
+            # resized_label: (target_D, target_H, target_W) -> (target_H, target_W, target_D)
+            data_dict[self.label_key] = resized_label.to(label.dtype)
+
+        return data_dict
+
+
 class PadToShape3D:
 
     def __init__(self, size, label_key=None):
@@ -194,20 +236,6 @@ class RandomResizedCrop3D:
 
 
 class CenterCrop3D:
-    """
-    Center crop for samples of the form:
-
-        {
-            "image": [..., C, H, W, D],
-            "label": optional
-        }
-
-    Crops image and any spatially-matching label to the
-    requested output size (H, W, D).
-
-    Assumes the input is already large enough (e.g. after
-    PadToShape3D).
-    """
 
     def __init__(self, size, label_key=None):
         self.size = tuple(size)  # (H, W, D)
@@ -298,13 +326,6 @@ class RandomSwapSpatialDims3D:
 
 
 class RandomFlipSpatialDims3D:
-    """
-    Randomly flips a 3D volume along H, W, and/or D.
-
-    Args:
-        p (float): probability of considering each axis for flipping.
-        label_key (str | None): apply the same flip to the label if present.
-    """
 
     def __init__(self, p=0.5, label_key=None):
         self.p = p
