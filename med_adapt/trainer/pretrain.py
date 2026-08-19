@@ -206,21 +206,11 @@ class PretrainTrainer(pl.LightningModule):
 
         return spatial_affinity.clamp(-1.0, 1.0)
 
-    def _teacher_forward(self, volume: torch.Tensor, p_d: int = 8, chunk_size=16):
+    def _teacher_forward(self, volume: torch.Tensor, chunk_size=16):
         b, c, h, w, d = volume.shape
         layer_outputs = (
             None  # list-of-lists: [layer][chunk] -> (cls_chunk, spatial_chunk)
         )
-
-        # d_that_matter = list(range(p_d // 2, d, p_d))
-        # actual_d = len(d_that_matter)
-        # slices_that_matter = volume[..., d_that_matter]
-
-        # chunked_ds = range(0, actual_d, chunk_size)
-
-        # for d_start in chunked_ds:
-        #     d_end = min(d_start + chunk_size, actual_d)
-        #     vol_chunk = slices_that_matter[..., d_start:d_end]  # b c h w d_chunk
 
         for d_start in range(0, d, chunk_size):
             d_end = min(d_start + chunk_size, d)
@@ -347,7 +337,7 @@ class PretrainTrainer(pl.LightningModule):
     def batch_to_loss(self, batch, train=False):
         with torch.no_grad():
             teacher_outs = self._teacher_forward(
-                batch["image"], p_d=self.model.patch_size[-1]
+                batch["image"],
             )
 
         image = self.preprocess_batch(batch, train)
