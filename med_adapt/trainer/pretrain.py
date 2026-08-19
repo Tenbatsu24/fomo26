@@ -368,7 +368,7 @@ class PretrainTrainer(pl.LightningModule):
                 ):
                     self.log(
                         f"{prefix}/{key}",
-                        value if isinstance(value, torch.Tensor) else value,
+                        value,
                         prog_bar=prog_bar,
                         on_epoch=on_epoch,
                         on_step=on_step,
