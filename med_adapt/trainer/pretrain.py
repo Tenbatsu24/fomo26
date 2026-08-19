@@ -299,6 +299,16 @@ class PretrainTrainer(pl.LightningModule):
             loss_dict["huber"] = huber
             loss_dict["t_huber"] = t_huber
 
+        bad = (~torch.isfinite(loss_dict["loss"])).float()
+
+        # Synchronize the decision
+        bad = self.all_gather(bad).max()
+
+        if bad > 0:
+            self.nan_counter += 1
+            self.log("train/nan", self.nan_counter, sync_dist=True)
+            return None
+
         return loss_dict
 
     def forward(self, x, *args, **kwargs):
@@ -390,17 +400,23 @@ class PretrainTrainer(pl.LightningModule):
 
     def training_step(self, batch, batch_idx):
         loss = self.batch_to_loss(batch, train=True)
-        loss = self.log_loss(
-            loss, prefix="train", prog_bar=True, on_epoch=False, on_step=True
-        )
-        return loss["loss"] if isinstance(loss, dict) else loss
+        if loss is not None:
+            loss = self.log_loss(
+                loss, prefix="train", prog_bar=True, on_epoch=False, on_step=True
+            )
+            return loss["loss"] if isinstance(loss, dict) else loss
+        else:
+            return None
 
     def validation_step(self, batch, batch_idx):
         loss = self.batch_to_loss(batch, train=False)
-        loss = self.log_loss(
-            loss, prefix="val", prog_bar=True, on_epoch=True, on_step=False
-        )
-        return loss
+        if loss is not None:
+            loss = self.log_loss(
+                loss, prefix="val", prog_bar=True, on_epoch=True, on_step=False
+            )
+            return loss
+        else:
+            return None
 
     def configure_optimizers(self):
         return self.optims, []
