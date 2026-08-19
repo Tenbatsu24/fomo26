@@ -211,9 +211,6 @@ class PretrainTrainer(pl.LightningModule):
                 torch.cat(spatial_chunks, dim=-1)
             )  # [b c h_p w_p d]
 
-            if torch.any(~torch.isfinite(spatial_full)):
-                spatial_full = 0.1 * torch.randn_like(spatial_full)
-
             outputs.append((spatial_full.detach(),))
 
         return outputs
@@ -306,14 +303,6 @@ class PretrainTrainer(pl.LightningModule):
         was_problem = False
 
         image = batch["image"]
-        if torch.any(~torch.isfinite(image)):
-            was_problem = True
-            image = 0.1 * torch.randn_like(image).clamp(-1, 1)
-            min_, max_ = -1, 1
-        else:
-            min_, max_ = torch.aminmax(image)
-            image = image.clamp_(-3, 3)
-
         with torch.no_grad():
             teacher_outs = self._teacher_forward(image)
 
@@ -328,6 +317,7 @@ class PretrainTrainer(pl.LightningModule):
         )
 
         if torch.any(~torch.isfinite(loss_dict["loss"])):
+            loss_dict = {"loss": None}
             was_problem = True
             self.nan_counter += 1
 
@@ -338,9 +328,6 @@ class PretrainTrainer(pl.LightningModule):
             print(batch["index"])
             print()
             print("=" * 25)
-
-        loss_dict["min"] = min_
-        loss_dict["max"] = max_
 
         return loss_dict
 
