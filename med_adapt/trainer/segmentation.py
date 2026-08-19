@@ -22,13 +22,12 @@ class SegmentationTrainer(TemplateTrainer):
         config: ConfigDict,
         model,
         gpu_augmentations,
-        normalisation: Optional[torch.nn.Module] = None,
     ):
         config["loss"] = {"type": "dice_ce"}
         config["metrics"] = {
             "dice": {"type": "mean_dice", "num_classes": config.num_classes},
         }
-        super().__init__(config, model, gpu_augmentations, normalisation)
+        super().__init__(config, model, gpu_augmentations)
 
     def batch_to_loss(self, batch, train=False):
         image, label = self.preprocess_batch(batch, train)
@@ -67,9 +66,6 @@ class SegmentationTrainer(TemplateTrainer):
         use_sliding_window = self.config.test.get("sliding_window", False)
 
         if use_sliding_window:
-            if self.normalisation is not None:
-                batch = self.normalisation(batch)
-
             x = batch["image"]
             y = batch["label"]
 

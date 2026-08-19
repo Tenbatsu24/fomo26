@@ -110,28 +110,35 @@ class ViT3DAdaption(ViT3D):
 
             if i >= self.pred_from:
                 if self.task == "segmentation":
-                    patch_tokens = x[
-                        :, self.num_q_tokens + self.num_register_tokens + 1 :, :
-                    ]
+                    patch_tokens = self.norm(
+                        x[:, self.num_q_tokens + self.num_register_tokens + 1 :, :]
+                    )
 
                     spatial = patch_tokens.unflatten(1, lp).permute(0, -1, 1, 2, 3)
                     preds.append(self.patch_decode(spatial))
                 else:
-                    query_logits = x[:, : self.num_q_tokens, :]  # [B, q, d]
-                    if self.task == "classification":
-                        cls_pred = self.query_mlp(query_logits[:, 0])
-                        preds.append(cls_pred)
-                    else:
-                        reg_pred = torch.stack(
-                            [
-                                self.query_mlp[f"class_{i}"](query_logits[:, i, :])[
-                                    :, 0
-                                ]
-                                for i in range(self.num_q_tokens)
-                            ],
-                            dim=-1,
+                    if self.task == "none":
+                        preds.append(
+                            self.norm(x[:, : self.num_register_tokens + 1, :])[:, 0]
                         )
-                        preds.append(reg_pred)
+                    else:
+                        query_logits = self.norm(
+                            x[:, : self.num_q_tokens, :]
+                        )  # [B, q, d]
+                        if self.task == "classification":
+                            cls_pred = self.query_mlp(query_logits[:, 0])
+                            preds.append(cls_pred)
+                        else:  # self.task == "regression":
+                            reg_pred = torch.stack(
+                                [
+                                    self.query_mlp[f"class_{i}"](query_logits[:, i, :])[
+                                        :, 0
+                                    ]
+                                    for i in range(self.num_q_tokens)
+                                ],
+                                dim=-1,
+                            )
+                            preds.append(reg_pred)
         return preds
 
     def load_state_dict(
@@ -168,11 +175,15 @@ class ViT3DAdaption(ViT3D):
                 .repeat(1, self.in_channels, 1, 1, 1)
             )
             new_state_dict["patch_embed.proj.weight"] = new_proj
+        else:
+            logger.info(f"Keeping original trained patch_embed: {ckpt_inch}")
 
-        if any(["patch_decode" in k for k in new_state_dict.keys()]):
+        if self.task == "segmentation" and any(
+            ["patch_decode" in k for k in new_state_dict.keys()]
+        ):
             ckpt_outch = new_state_dict["patch_decode.head.weight"].shape[0]
             if self.classes != ckpt_outch:
-                logger.info(f" out_ch: {ckpt_outch} -> {self.classes}")
+                logger.info(f"out_ch: {ckpt_outch} -> {self.classes}")
                 new_proj = (
                     new_state_dict["patch_decode.head.weight"]
                     .mean(dim=0, keepdim=True)
@@ -192,7 +203,6 @@ class ViT3DAdaption(ViT3D):
 
     def additional_trainable(self):
         return [
-            "patch_embed",
             "query_mlp",
             "query_tokens",
             "patch_decode",

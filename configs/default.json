@@ -6,7 +6,7 @@
     "query_from": -6
   },
   "pretrained": {
-    "checkpoint": "small/neco/encoder_teacher.ckpt"
+    "checkpoint": "small/neco_3d/last.ckpt"
   },
   "data": {
     "dataset_name": "CLS002_FOMO26_Infarct",
@@ -18,7 +18,7 @@
     "volume_patch_size": [
       14,
       14,
-      2
+      8
     ],
     "batch_size": 2,
     "num_workers": 2,
@@ -54,11 +54,11 @@
   "scheduler": [
     [
       "lr",
-      "CatSched(LinSched(2e-8, 2e-5), CosSched(2e-5, 0.0), 0.05)"
+      "CatSched(LinSched(1e-8, 5e-4), CosSched(5e-4, 1e-9), 0.05)"
     ],
     [
       "weight_decay",
-      "CosSched(0.04, 0.05)"
+      "ConstSched(0.05)"
     ]
   ],
   "loss": null,

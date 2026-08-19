@@ -228,7 +228,7 @@ class PretrainTrainer(pl.LightningModule):
     def _distill_loss(
         self, teacher_out, student_out, recon=None, volume=None, mask=None
     ):
-        affinity_total, token_cos_total, token_l2_total = 0.0, 0.0, 0.0
+        token_cos_total, token_l2_total = 0.0, 0.0
         n = len(teacher_out)
 
         bad_for_recon = False
@@ -383,23 +383,15 @@ class PretrainTrainer(pl.LightningModule):
 
     def training_step(self, batch, batch_idx):
         loss = self.batch_to_loss(batch, train=True)
-        if loss is not None:
-            loss = self.log_loss(
-                loss, prefix="train", prog_bar=True, on_epoch=False, on_step=True
-            )
-            return loss["loss"] if isinstance(loss, dict) else loss
-        else:
-            return None
+        return self.log_loss(
+            loss, prefix="train", prog_bar=True, on_epoch=False, on_step=True
+        )
 
     def validation_step(self, batch, batch_idx):
         loss = self.batch_to_loss(batch, train=False)
-        if loss is not None:
-            loss = self.log_loss(
-                loss, prefix="val", prog_bar=True, on_epoch=True, on_step=False
-            )
-            return loss
-        else:
-            return None
+        return self.log_loss(
+            loss, prefix="val", prog_bar=True, on_epoch=True, on_step=False
+        )
 
     def configure_optimizers(self):
         return self.optims, []

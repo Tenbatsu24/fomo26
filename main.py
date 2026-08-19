@@ -135,6 +135,8 @@ def build_model(config, task, n_modalities, n_classes, lora, mea):
             classes=n_classes,
             lora=lora,
             mea=mea,
+            use_mask=False,
+            use_patch_decode=task == "segmentation",
         )
 
 
@@ -284,9 +286,7 @@ def run_test_mode(
         config, task, n_modalities, n_classes, lora=config.model.lora, mea=True
     )
     crop_size = tuple(config.data.crop_size)
-    test_transforms = build_cpu_transforms(
-        crop_size, training=False, task=task, resize_to=config.data.resize_to
-    )
+    test_transforms = build_cpu_transforms(crop_size, training=False, task=task)
     train_dl, val_dl, test_dl = build_dataloaders(
         dataset_class=dataset_class,
         root=str(get_data_path()),
@@ -296,7 +296,6 @@ def run_test_mode(
         num_workers=config.data.num_workers,
         test_transforms=test_transforms,
         resample_spacing=config.data.resample_spacing,
-        resize_to=config.data.resize_to,
     )
 
     # Load checkpoint weights only
@@ -396,10 +395,14 @@ def main():
     crop_size = tuple(config.data.crop_size)
 
     train_cpu_transforms = build_cpu_transforms(
-        crop_size, training=True, task=task, resize_to=config.data.resize_to
+        crop_size,
+        training=True,
+        task=task,
     )
     val_cpu_transforms = build_cpu_transforms(
-        crop_size, training=False, task=task, resize_to=config.data.resize_to
+        crop_size,
+        training=False,
+        task=task,
     )
 
     model = build_model(config, task, n_modalities, n_classes, config.model.lora, True)
@@ -414,7 +417,6 @@ def main():
         val_transforms=val_cpu_transforms,
         val_drop_last=False,
         resample_spacing=config.data.resample_spacing,
-        resize_to=config.data.resize_to,
     )
 
     if config.enable_aug:
