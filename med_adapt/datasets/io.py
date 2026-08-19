@@ -54,7 +54,7 @@ def _percentile_minmax(
     range_ = hi - lo
 
     if range_ > 0.5:
-        image = (image - mid_) / range_
+        image = 2 * (image - mid_) / range_
     else:
         image = image - mid_
 
