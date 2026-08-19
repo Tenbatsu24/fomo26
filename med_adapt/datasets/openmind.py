@@ -15,7 +15,7 @@ from torch.utils.data import IterableDataset
 from sklearn.model_selection import train_test_split
 
 from med_adapt.registry import register_dataset
-from med_adapt.datasets.io import _percentile_zscore
+from med_adapt.datasets.io import _percentile_minmax
 
 
 @register_dataset("OpenMind")
@@ -114,7 +114,7 @@ class OpenNeuroDataset(IterableDataset):
             dtype=np.float32,
         )
 
-        image = _percentile_zscore(
+        image = _percentile_minmax(
             image,
             lower=0.5,
             upper=99.5,
@@ -130,11 +130,7 @@ class OpenNeuroDataset(IterableDataset):
         image_path = self._resolve_image_path(row["image_path"])
         image = self._load_image(image_path)  # to be used when actually training
         # image = torch.randn((1, 224, 224, 196), dtype=torch.float32)
-        sample = {
-            "image": image,
-            "label": 0,
-            "index": index
-        }
+        sample = {"image": image, "label": 0, "index": index}
         if self.transform is not None:
             sample = self.transform(sample)
         return sample

@@ -9,7 +9,7 @@ import lightning as pl
 import torch.nn.functional as F
 import torch.distributed as dist
 
-from einops import rearrange
+from einops import rearrange, repeat
 from loguru import logger
 from lightning import Callback
 from ml_collections import ConfigDict
@@ -93,16 +93,6 @@ class PretrainTrainer(pl.LightningModule):
 
         self.optims, self.scheduler = self.make_opt_sched()
 
-        # Will be moved to the correct device in on_train_start via self.device
-        self.register_buffer(
-            "imagenet_mean",
-            torch.tensor([0.485, 0.456, 0.406]).view(1, 3, 1, 1),
-        )
-        self.register_buffer(
-            "imagenet_std",
-            torch.tensor([0.229, 0.224, 0.225]).view(1, 3, 1, 1),
-        )
-
         self.mask_enabled = self.config.model.use_mask
 
         # Mask generation hyper-parameters (safe defaults when absent)
@@ -182,16 +172,9 @@ class PretrainTrainer(pl.LightningModule):
             vol_chunk = volume[..., d_start:d_end]  # b c h w d_chunk
 
             vol_flat = rearrange(vol_chunk, "b c h w d -> (b d) c h w")
-            ch_min = vol_flat.amin(dim=(1, 2, 3), keepdim=True)
-            ch_max = vol_flat.amax(dim=(1, 2, 3), keepdim=True)
+            vol_flat = repeat(vol_flat, "b 1 ... -> b 3 ...")
 
-            denom = ch_max - ch_min
-            denom = torch.where(denom < 0.1, 1.0, denom)
-
-            vol_norm = (vol_flat - ch_min) / denom
-            vol_norm = (vol_norm - self.imagenet_mean) / self.imagenet_std
-
-            intermediates = self.teacher_model(vol_norm, distill_from=self.distill_from)
+            intermediates = self.teacher_model(vol_flat, distill_from=self.distill_from)
 
             if layer_outputs is None:
                 layer_outputs = [[] for _ in intermediates]
@@ -306,13 +289,7 @@ class PretrainTrainer(pl.LightningModule):
         was_problem = False
 
         image = batch["image"]
-        if torch.any(~torch.isfinite(image)):
-            was_problem = True
-            image = 0.1 * torch.randn_like(image).clamp(-1, 1)
-            min_, max_ = -1, 1
-        else:
-            min_, max_ = torch.aminmax(image)
-            image = image.clamp_(-3, 3)
+        min_, max_ = torch.aminmax(image)
 
         with torch.no_grad():
             teacher_outs = self._teacher_forward(image)
@@ -323,7 +300,9 @@ class PretrainTrainer(pl.LightningModule):
 
         student_outs, recon = self(image, distill_from=self.distill_from, mask=mask)
 
-        loss_dict = self._distill_loss(teacher_outs, student_outs, recon, image, mask=mask)
+        loss_dict = self._distill_loss(
+            teacher_outs, student_outs, recon, image, mask=mask
+        )
 
         if torch.any(~torch.isfinite(loss_dict["loss"])):
             was_problem = True
@@ -357,11 +336,7 @@ class PretrainTrainer(pl.LightningModule):
             for key, value in loss.items():
                 if "problem_item" in key:
                     for bleh, index in enumerate(value):
-                        self.logger.log_metrics(
-                            {
-                                f"{prefix}/{key}": index
-                            }
-                        )
+                        self.logger.log_metrics({f"{prefix}/{key}": index})
                 elif (
                     isinstance(value, torch.Tensor)
                     or isinstance(value, float)
