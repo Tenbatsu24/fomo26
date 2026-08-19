@@ -204,7 +204,7 @@ class PretrainTrainer(pl.LightningModule):
     def _distill_loss(
         self, teacher_out, student_out, recon=None, volume=None, mask=None
     ):
-        affinity_total, token_cos_total, token_l2_total = 0.0, 0.0, 0.0
+        token_cos_total, token_l2_total = 0.0, 0.0
         n = len(teacher_out)
 
         for zip_idx, ((*_, t_patch), (*_, s_patch)) in enumerate(
