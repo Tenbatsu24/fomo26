@@ -1,28 +1,33 @@
 {
   "model": {
-    "variant": "3d",
+    "variant": "2d",
     "size": "small",
     "lora": true,
     "query_from": -6
   },
   "pretrained": {
-    "checkpoint": "small/neco_3d/last.ckpt"
+    "checkpoint": "small/neco/encoder_teacher.ckpt"
   },
   "data": {
     "dataset_name": "CLS002_FOMO26_Infarct",
     "crop_size": [
-      224,
-      224,
+      256,
+      256,
       32
     ],
     "volume_patch_size": [
       14,
       14,
-      8
+      2
     ],
     "batch_size": 2,
     "num_workers": 2,
-    "resample_spacing": "median"
+    "resample_spacing": null,
+    "resize_to": [
+      284,
+      284,
+      48
+    ]
   },
   "enable_aug": true,
   "optimizer": {
@@ -54,11 +59,11 @@
   "scheduler": [
     [
       "lr",
-      "CatSched(LinSched(1e-8, 5e-4), CosSched(5e-4, 1e-9), 0.05)"
+      "CatSched(LinSched(2e-5, 2e-3), CosSched(2e-3, 2e-6), 5)"
     ],
     [
       "weight_decay",
-      "ConstSched(0.05)"
+      "CosSched(0.04, 0.05)"
     ]
   ],
   "loss": null,
