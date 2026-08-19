@@ -15,10 +15,10 @@ import nibabel as nib
 from scipy.ndimage import zoom
 
 
-def _percentile_minmax(
+def _percentile_zscore(
     image: np.ndarray,
-    lower: float = 1.0,
-    upper: float = 99.0,
+    lower: float = 0.5,
+    upper: float = 99.5,
 ):
     """
     Percentile clipping followed by z-score normalization.
@@ -50,13 +50,15 @@ def _percentile_minmax(
         hi,
     )
 
-    mid_ = (hi + lo) / 2.0
-    range_ = hi - lo
+    values = image.reshape(-1)
 
-    if range_ > 0.1:
-        image = 4 * (image - mid_) / range_
+    mean = values.mean()
+    std = values.std()
+
+    if std > 0.1:
+        image = (image - mean) / std
     else:
-        image = image - mid_
+        image = image - mean
 
     return image
 
@@ -72,7 +74,7 @@ def load_nifti(
     spacing = tuple(float(x) for x in image.header.get_zooms()[:3])
 
     if not is_mask:
-        data = _percentile_minmax(data)
+        data = _percentile_zscore(data)
 
     return data, affine, spacing
 
