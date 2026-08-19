@@ -275,7 +275,9 @@ class PretrainTrainer(pl.LightningModule):
 
         if recon is not None:
             if bad_for_recon:
-                t_recon = torch.randn_like(volume)
+                t_recon = self.model.patch_decode(
+                    torch.randn_like(final_t_patch_interp)
+                )
             else:
                 t_recon = self.model.patch_decode(final_t_patch_interp.detach())
             t_huber = F.huber_loss(t_recon, volume, reduction="mean")
@@ -403,3 +405,22 @@ class PretrainTrainer(pl.LightningModule):
 
     def configure_callbacks(self) -> Union[Sequence[Callback], Callback]:
         return [self.scheduler]
+
+    # def on_after_backward(self):
+    #     no_grad = []
+    #     zero_grad = []
+    #
+    #     for name, param in self.named_parameters():
+    #         if not param.requires_grad:
+    #             continue
+    #
+    #         if param.grad is None:
+    #             no_grad.append(name)
+    #         elif torch.count_nonzero(param.grad) == 0:
+    #             zero_grad.append(name)
+    #
+    #     if no_grad:
+    #         print("No gradient:", no_grad)
+    #
+    #     if zero_grad:
+    #         print("Zero gradient:", zero_grad)
