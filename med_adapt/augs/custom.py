@@ -329,13 +329,6 @@ class RandomSwapSpatialDims3D:
 
 
 class RandomFlipSpatialDims3D:
-    """
-    Randomly flips a 3D volume along H, W, and/or D.
-
-    Args:
-        p (float): probability of considering each axis for flipping.
-        label_key (str | None): apply the same flip to the label if present.
-    """
 
     def __init__(self, p=0.5, label_key=None):
         self.p = p
