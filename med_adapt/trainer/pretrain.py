@@ -171,16 +171,6 @@ class PretrainTrainer(pl.LightningModule):
                 )
         return [opt], scheduler
 
-    def preprocess_batch(self, batch, train: bool) -> tuple[Any, Any]:
-        if train and self.gpu_aug is not None:
-            batch = self.gpu_aug(batch)
-
-        if self.normalisation is not None:
-            batch = self.normalisation(batch)
-
-        image = batch["image"]
-        return image
-
     def _teacher_forward(self, volume: torch.Tensor, chunk_size=16):
         b, c, h, w, d = volume.shape
         layer_outputs = (
@@ -221,6 +211,9 @@ class PretrainTrainer(pl.LightningModule):
                 torch.cat(spatial_chunks, dim=-1)
             )  # [b c h_p w_p d]
 
+            if torch.any(~torch.isfinite(spatial_full)):
+                spatial_full = 0.1 * torch.randn_like(spatial_full)
+
             outputs.append((spatial_full.detach(),))
 
         return outputs
@@ -231,9 +224,6 @@ class PretrainTrainer(pl.LightningModule):
         affinity_total, token_cos_total, token_l2_total = 0.0, 0.0, 0.0
         n = len(teacher_out)
 
-        bad_for_recon = False
-        final_t_patch_interp = None
-
         for zip_idx, ((*_, t_patch), (*_, s_patch)) in enumerate(
             zip(teacher_out, student_out)
         ):
@@ -243,19 +233,11 @@ class PretrainTrainer(pl.LightningModule):
                 mode="trilinear",
                 align_corners=False,
             )
-            bad = torch.any(~torch.isfinite(t_patch_interp))
 
             if zip_idx == n - 1:
-                bad_for_recon = bad
                 final_t_patch_interp = t_patch_interp
 
-            if bad:
-                token_l2 = (
-                    (torch.randn_like(s_patch) - s_patch).square().mean()
-                )  # random better than non finite
-            else:
-                token_l2 = (t_patch_interp - s_patch).square().mean()
-
+            token_l2 = (t_patch_interp - s_patch).square().mean()
             token_l2_total += token_l2
 
             t_pn = F.normalize(t_patch_interp, p=2, eps=1e-6, dim=1)
@@ -274,12 +256,7 @@ class PretrainTrainer(pl.LightningModule):
         }
 
         if recon is not None:
-            if bad_for_recon:
-                t_recon = self.model.patch_decode(
-                    torch.randn_like(final_t_patch_interp)
-                )
-            else:
-                t_recon = self.model.patch_decode(final_t_patch_interp.detach())
+            t_recon = self.model.patch_decode(final_t_patch_interp.detach())
             t_huber = F.huber_loss(t_recon, volume, reduction="mean")
         else:
             t_huber = None
@@ -289,10 +266,6 @@ class PretrainTrainer(pl.LightningModule):
             loss_dict["loss"] += 0.5 * (huber + t_huber)
             loss_dict["huber"] = huber
             loss_dict["t_huber"] = t_huber
-
-        if bad_for_recon:
-            self.nan_counter += 1
-            loss_dict["nan"] = self.nan_counter
 
         return loss_dict
 
@@ -330,12 +303,19 @@ class PretrainTrainer(pl.LightningModule):
         return self._spatial_shape
 
     def batch_to_loss(self, batch, train=False):
-        with torch.no_grad():
-            teacher_outs = self._teacher_forward(
-                batch["image"],
-            )
+        was_problem = False
 
-        image = self.preprocess_batch(batch, train)
+        image = batch["image"]
+        if torch.any(~torch.isfinite(image)):
+            was_problem = True
+            image = 0.1 * torch.randn_like(image).clamp(-1, 1)
+            min_, max_ = -1, 1
+        else:
+            min_, max_ = torch.aminmax(image)
+            image = image.clamp_(-3, 3)
+
+        with torch.no_grad():
+            teacher_outs = self._teacher_forward(image)
 
         mask = None
         if self.mask_enabled and train:
@@ -343,7 +323,19 @@ class PretrainTrainer(pl.LightningModule):
 
         student_outs, recon = self(image, distill_from=self.distill_from, mask=mask)
 
-        return self._distill_loss(teacher_outs, student_outs, recon, image, mask=mask)
+        loss_dict = self._distill_loss(teacher_outs, student_outs, recon, image, mask=mask)
+
+        if torch.any(~torch.isfinite(loss_dict["loss"])):
+            was_problem = True
+            self.nan_counter += 1
+
+        if was_problem:
+            loss_dict["problem_item"] = batch["index"]
+
+        loss_dict["min"] = min_
+        loss_dict["max"] = max_
+
+        return loss_dict
 
     def on_fit_start(self) -> None:
         self.teacher_model.eval()
@@ -363,7 +355,14 @@ class PretrainTrainer(pl.LightningModule):
     def log_loss(self, loss, prefix, prog_bar, on_epoch, on_step):
         if isinstance(loss, dict):
             for key, value in loss.items():
-                if (
+                if "problem_item" in key:
+                    for bleh, index in enumerate(value):
+                        self.logger.log_metrics(
+                            {
+                                f"{prefix}/{key}": index
+                            }
+                        )
+                elif (
                     isinstance(value, torch.Tensor)
                     or isinstance(value, float)
                     or isinstance(value, int)
