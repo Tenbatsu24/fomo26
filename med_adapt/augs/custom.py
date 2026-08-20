@@ -94,10 +94,10 @@ class PadToShape3D:
         )
 
         if self.label_key is not None and self.label_key in sample:
-            label = sample["label"]
+            label = sample[self.label_key]
 
             if isinstance(label, torch.Tensor) and label.shape[-3:] == (H, W, D):
-                out["label"] = F.pad(
+                out[self.label_key] = F.pad(
                     label,
                     pad,
                     mode="constant",
@@ -111,8 +111,8 @@ class RandomResizedCrop3D:
     def __init__(
         self,
         size,
-        scale=(0.8, 1.2),
-        ratio=(3 / 4, 4 / 3),
+        scale=(0.5, 1.0),
+        ratio=(0.9, 1.1),
         label_key=None,
     ):
         self.size = tuple(size)
@@ -129,9 +129,9 @@ class RandomResizedCrop3D:
             r_hw = random.uniform(*self.ratio)
             r_hd = random.uniform(*self.ratio)
 
-            h = round((target_volume * r_hw * r_hd) ** (1 / 3))
-            w = round((target_volume / r_hw) ** (1 / 3))
-            d = round((target_volume / r_hd) ** (1 / 3))
+            h = round((target_volume * r_hw * r_hd) ** (1.0 / 3.0))
+            w = round(h / r_hw)
+            d = round(h / r_hd)
 
             if 0 < h <= H and 0 < w <= W and 0 < d <= D:
                 top = random.randint(0, H - h)
@@ -140,18 +140,8 @@ class RandomResizedCrop3D:
 
                 return top, left, depth, h, w, d
 
-        # fallback center crop
-        scale = min(H / H, W / W, D / D)
-
-        h = min(H, int(round(H * scale)))
-        w = min(W, int(round(W * scale)))
-        d = min(D, int(round(D * scale)))
-
-        top = (H - h) // 2
-        left = (W - w) // 2
-        depth = (D - d) // 2
-
-        return top, left, depth, h, w, d
+        # Fallback: use the whole volume
+        return 0, 0, 0, H, W, D
 
     def _crop_resize_image(self, x, params):
         top, left, depth, h, w, d = params
@@ -223,11 +213,10 @@ class RandomResizedCrop3D:
         )
 
         if self.label_key is not None and self.label_key in sample:
-            label = sample["label"]
+            label = sample[self.label_key]
 
-            # spatial 3D label
             if isinstance(label, torch.Tensor) and label.shape[-3:] == (H, W, D):
-                out["label"] = self._crop_resize_label_3d(
+                out[self.label_key] = self._crop_resize_label_3d(
                     label,
                     params,
                 )
@@ -236,6 +225,20 @@ class RandomResizedCrop3D:
 
 
 class CenterCrop3D:
+    """
+    Center crop for samples of the form:
+
+        {
+            "image": [..., C, H, W, D],
+            "label": optional
+        }
+
+    Crops image and any spatially-matching label to the
+    requested output size (H, W, D).
+
+    Assumes the input is already large enough (e.g. after
+    PadToShape3D).
+    """
 
     def __init__(self, size, label_key=None):
         self.size = tuple(size)  # (H, W, D)
@@ -263,10 +266,10 @@ class CenterCrop3D:
         ]
 
         if self.label_key is not None and self.label_key in sample:
-            label = sample["label"]
+            label = sample[self.label_key]
 
             if isinstance(label, torch.Tensor) and label.shape[-3:] == (H, W, D):
-                out["label"] = label[
+                out[self.label_key] = label[
                     ...,
                     :,
                     top : top + crop_H,
@@ -317,15 +320,22 @@ class RandomSwapSpatialDims3D:
         out["image"] = self._apply(image, perm)
 
         if self.label_key is not None and self.label_key in sample:
-            label = sample["label"]
+            label = sample[self.label_key]
 
             if isinstance(label, torch.Tensor) and label.shape[-3:] == (H, W, D):
-                out["label"] = self._apply(label, perm)
+                out[self.label_key] = self._apply(label, perm)
 
         return out
 
 
 class RandomFlipSpatialDims3D:
+    """
+    Randomly flips a 3D volume along H, W, and/or D.
+
+    Args:
+        p (float): probability of considering each axis for flipping.
+        label_key (str | None): apply the same flip to the label if present.
+    """
 
     def __init__(self, p=0.5, label_key=None):
         self.p = p
