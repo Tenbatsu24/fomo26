@@ -71,7 +71,6 @@ def build_cpu_transforms(crop_size, training, task):
         tforms = [
             RandomSwapSpatialDims3D(p=0.5, label_key=label_key),
             RandomFlipSpatialDims3D(p=0.5, label_key=label_key),
-            PadToShape3D(crop_size, label_key=label_key),
             RandomResizedCrop3D(crop_size, label_key=label_key),
         ]
     else:
