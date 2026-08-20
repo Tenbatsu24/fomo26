@@ -53,9 +53,14 @@ def preprocess_volume(volume: torch.Tensor) -> torch.Tensor:
 
 def load_model(checkpoint_path: Path | str) -> torch.nn.Module:
     """Build and load the 2-D ViT-S encoder from the checkpoint."""
-    from med_adapt.models.base.vit2d import vitv2_small
+    from med_adapt.models.base.vit2d import vitv2_small, vitv2_base
 
-    model = vitv2_small(img_size=518, patch_size=14)
+    if "base" in str(checkpoint_path):
+        model_cls = vitv2_base
+    else:
+        model_cls = vitv2_small
+
+    model = model_cls(img_size=518, patch_size=14)
     ckpt = torch.load(checkpoint_path, map_location="cpu")
     filtered = {k: v for k, v in ckpt.items() if not k.startswith("projection_head")}
     model.load_state_dict(filtered, strict=False)
