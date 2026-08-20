@@ -96,11 +96,11 @@ class PretrainTrainer(pl.LightningModule):
         # Will be moved to the correct device in on_train_start via self.device
         self.register_buffer(
             "imagenet_mean",
-            torch.tensor([0.485, 0.456, 0.406]).view(1, 3, 1, 1),
+            torch.tensor([0.485, 0.456, 0.406]).view(1, 3, 1, 1, 1),
         )
         self.register_buffer(
             "imagenet_std",
-            torch.tensor([0.229, 0.224, 0.225]).view(1, 3, 1, 1),
+            torch.tensor([0.229, 0.224, 0.225]).view(1, 3, 1, 1, 1),
         )
 
         self.mask_enabled = self.config.model.use_mask
@@ -177,21 +177,22 @@ class PretrainTrainer(pl.LightningModule):
             None  # list-of-lists: [layer][chunk] -> (cls_chunk, spatial_chunk)
         )
 
+        ch_min = volume.amin(dim=(1, 2, 3, 4), keepdim=True)
+        ch_max = volume.amax(dim=(1, 2, 3, 4), keepdim=True)
+
+        denom = ch_max - ch_min
+        denom = torch.where(denom < 0.1, 1.0, denom)
+
+        vol_norm = (volume - ch_min) / denom
+        vol_norm = (vol_norm - self.imagenet_mean) / self.imagenet_std
+
         for d_start in range(0, d, chunk_size):
             d_end = min(d_start + chunk_size, d)
-            vol_chunk = volume[..., d_start:d_end]  # b c h w d_chunk
 
-            vol_flat = rearrange(vol_chunk, "b c h w d -> (b d) c h w")
-            ch_min = vol_flat.amin(dim=(1, 2, 3), keepdim=True)
-            ch_max = vol_flat.amax(dim=(1, 2, 3), keepdim=True)
-
-            denom = ch_max - ch_min
-            denom = torch.where(denom < 0.1, 1.0, denom)
-
-            vol_norm = (vol_flat - ch_min) / denom
-            vol_norm = (vol_norm - self.imagenet_mean) / self.imagenet_std
-
-            intermediates = self.teacher_model(vol_norm, distill_from=self.distill_from)
+            intermediates = self.teacher_model(
+                rearrange(vol_norm[..., d_start:d_end], "b c h w d -> (b d) c h w"),
+                distill_from=self.distill_from,
+            )
 
             if layer_outputs is None:
                 layer_outputs = [[] for _ in intermediates]

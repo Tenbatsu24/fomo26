@@ -108,11 +108,20 @@ class OpenNeuroDataset(IterableDataset):
         """
 
         array = blosc2.open(str(path))
+        image = np.asarray(array, dtype=np.float32)
+        # image = np.zeros((1, 224, 224, 196), dtype=np.float32)
 
-        image = np.asarray(
-            array,
-            dtype=np.float32,
-        )
+        if np.isnan(image).any():
+            print("=" * 25)
+            print(f"NAN FOUND IN TRAINING DATA")
+            print(path)  # for debug and getting rid of perhaps
+            print()
+            print("=" * 25)
+
+            rng = np.random.default_rng(0)
+            image = rng.standard_normal(
+                image.shape, dtype=np.float32
+            )  # we do not want to crash ddp training.
 
         image = _percentile_zscore(
             image,
@@ -120,7 +129,7 @@ class OpenNeuroDataset(IterableDataset):
             upper=99.5,
         )
 
-        return torch.from_numpy(image.transpose(0, 2, 3, 1))
+        return torch.from_numpy(image)
 
     def __getitem__(
         self,
@@ -129,7 +138,7 @@ class OpenNeuroDataset(IterableDataset):
         row = self.df.iloc[index]
         image_path = self._resolve_image_path(row["image_path"])
         image = self._load_image(image_path)  # to be used when actually training
-        # image = torch.randn((1, 224, 224, 196), dtype=torch.float32)
+
         sample = {"image": image, "label": 0, "index": index}
         if self.transform is not None:
             sample = self.transform(sample)
