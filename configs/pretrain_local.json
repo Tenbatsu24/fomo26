@@ -2,11 +2,11 @@
   "model": {
     "size": "small",
     "volume_patch_size": [
-      14,
-      14,
-      2
+      8,
+      8,
+      8
     ],
-    "use_patch_decode": true,
+    "use_patch_decode": false,
     "use_mask": true,
     "mask": {
       "mask_prob": 1.0,
@@ -19,9 +19,13 @@
   "data": {
     "dataset_name": "OpenMind",
     "crop_size": [
+      112,
+      112,
+      160
+    ],
+    "teacher_resize": [
       196,
-      196,
-      28
+      196
     ],
     "batch_size": 1,
     "num_workers": 2

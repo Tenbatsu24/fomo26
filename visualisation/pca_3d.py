@@ -140,7 +140,7 @@ def plot_volume_pca_3d(
     resize_size: Optional[tuple[int, int, int]] = None,
     model_volume_size: Optional[tuple[int, int, int]] = None,
     dataset_name: str = DEFAULT_DATASET,
-    output_dir: Path | str = DEFAULT_OUTPUT_DIR,
+    output_dir: Path | str = None,
     max_depth_slices: int = 9,
     sample_index: int = 0,
     patch_size: tuple[int, int, int] = (14, 14, 8),
@@ -156,7 +156,7 @@ def plot_volume_pca_3d(
     from med_adapt.registry import STORE
     from med_adapt.augs import PadToShape3D, CenterCrop3D
 
-    output_dir = Path(output_dir)
+    output_dir = Path(output_dir) / f"{sample_index}"
     output_dir.mkdir(parents=True, exist_ok=True)
 
     trnsfrms = Compose(

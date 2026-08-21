@@ -297,22 +297,70 @@ def vitv2_3d_large(
 
 
 if __name__ == "__main__":
+    import math
+
+    def main():
+        spatial = (112, 112, 160)
+        ps = (8, 8, 8)
+        resolution = [s // p for s, p in zip(spatial, ps)]
+        dtype = torch.float16
+
+        model = (
+            vitv2_3d_base(volume_size=spatial, volume_patch_size=ps, med_in_channels=1)
+            .cuda()
+            .to(dtype)
+        )
+
+        # Test memory usage for different batch sizes
+        batch_sizes = [
+            1,
+        ]
+
+        for batch_size in batch_sizes:
+            torch.cuda.empty_cache()
+            torch.cuda.reset_peak_memory_stats()
+            # Fresh optimizer for each test
+            optimizer = torch.optim.AdamW(model.parameters())
+            # Dummy input and target
+            x = torch.randn(batch_size, 1, *spatial, device="cuda", dtype=dtype)
+            mask = (
+                torch.rand(batch_size, math.prod(resolution), device="cuda")
+                .gt(0.5)
+                .bool()
+            )
+            optimizer.zero_grad(set_to_none=True)
+            # Forward
+            output, recon = model(x, mask=mask, distill_from=-1)
+            # Dummy loss
+            loss = torch.stack([po for (_, po) in output], dim=0).mean() + recon.mean()
+            # Backward
+            loss.backward()
+            # Optimizer step
+            optimizer.step()
+            peak_memory = torch.cuda.max_memory_allocated() / (1024**3)
+            print(
+                f"Batch size {batch_size:2d}: " f"{peak_memory:.2f} GB peak allocated"
+            )
+            del x, output, loss, optimizer
+
+    main()
+
     # import thop
-
-    model = vitv2_3d_small(
-        volume_size=(196, 196, 28), volume_patch_size=(14, 14, 2), med_in_channels=3
-    ).cuda()
-
-    vol = torch.randn(1, 3, 196, 196, 28, device="cuda")
-    mask = torch.rand(1, 14, 14, 14, device="cuda").flatten(1) > 0.5
+    #
+    # model = vitv2_3d_small(
+    #     volume_size=(224, 224, 128), volume_patch_size=(14, 14, 8), med_in_channels=1
+    # ).cuda()
+    #
+    # vol = torch.randn(1, 3, 196, 196, 28, device="cuda")
+    # mask = torch.rand(1, 14, 14, 14, device="cuda").flatten(1) > 0.5
     # macs, params = thop.profile(model, (vol,))
     # print("Model FLOPs & Params:")
     # print("\t".join(thop.clever_format([macs, params], "%.3f")))
-
-    with torch.no_grad():
-        out, recon = model(vol, distill_from=-2, mask=mask)
-
-    for layer_out in out:
-        print([cls_patch.shape for cls_patch in layer_out])
-
-    print(recon.shape)
+    #
+    # with torch.no_grad():
+    #     out, recon = model(vol, distill_from=-2, mask=mask)
+    #
+    # for layer_out in out:
+    #     print([cls_patch.shape for cls_patch in layer_out])
+    #
+    # print(recon.shape)
