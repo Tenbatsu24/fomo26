@@ -5,7 +5,6 @@ Usage:
 """
 
 import argparse
-import uuid
 
 from pathlib import Path
 
@@ -166,8 +165,18 @@ def main():
     # csv_logger = CSVLogger(results_path, name=f"{run_name}")
     wandb_logger = WandbLogger(run_name, save_dir=results_path, project="fomo26")
 
-    model_dir = Path(results_path) / run_name / "version_4"
-    print(model_dir)
+    run_dir = Path(results_path) / run_name
+
+    versions = [
+        int(p.name.split("_")[1])
+        for p in run_dir.glob("version_*")
+        if p.is_dir() and p.name.split("_")[1].isdigit()
+    ]
+
+    next_version = max(versions, default=0) + 1
+    model_dir = run_dir / f"version_{next_version}"
+    logger.info(f"Model storing dir is: {model_dir}")
+    model_dir.mkdir(exist_ok=True, parents=True)
 
     checkpoint_callback = ModelCheckpoint(
         dirpath=model_dir,

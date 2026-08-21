@@ -10,16 +10,18 @@ import torch.nn.functional as F
 import torch.distributed as dist
 
 from einops import rearrange
-from loguru import logger
 from lightning import Callback
 from ml_collections import ConfigDict
 
 from med_adapt.layers import RunningNorm
 from med_adapt.utils import get_models_path
+from med_adapt.utils.config import get_logger
 from med_adapt.augs import default_disable_aug
 from med_adapt.utils.masking import generate_masks
 from med_adapt.optim import init_optims_from_config
 from med_adapt.scheduling import Schedule, Scheduler
+
+logger = get_logger(__name__)
 
 
 def apply_lr_multiplier(loc, step, sched):
@@ -93,7 +95,9 @@ class PretrainTrainer(pl.LightningModule):
 
         self.optims, self.scheduler = self.make_opt_sched()
 
-        # Will be moved to the correct device in on_train_start via self.device
+        self.teacher_resize = self.config.data.get("teacher_resize", None)
+        logger.info(f"Using teacher resize: {self.teacher_resize}")
+
         self.register_buffer(
             "imagenet_mean",
             torch.tensor([0.485, 0.456, 0.406]).view(1, 3, 1, 1, 1),
@@ -104,7 +108,6 @@ class PretrainTrainer(pl.LightningModule):
         )
 
         self.mask_enabled = self.config.model.use_mask
-
         # Mask generation hyper-parameters (safe defaults when absent)
         mask_cfg = getattr(self.config.model, "mask", None) or {}
         self.mask_prob = mask_cfg.get("mask_prob", 0.75)
@@ -189,8 +192,19 @@ class PretrainTrainer(pl.LightningModule):
         for d_start in range(0, d, chunk_size):
             d_end = min(d_start + chunk_size, d)
 
+            slice_vol = rearrange(
+                vol_norm[..., d_start:d_end], "b c h w d -> (b d) c h w"
+            )
+            if self.teacher_resize is not None:
+                slice_vol = F.interpolate(
+                    slice_vol,
+                    size=self.teacher_resize,
+                    mode="bicubic",
+                    align_corners=False,
+                )
+
             intermediates = self.teacher_model(
-                rearrange(vol_norm[..., d_start:d_end], "b c h w d -> (b d) c h w"),
+                slice_vol,
                 distill_from=self.distill_from,
             )
 
@@ -228,8 +242,7 @@ class PretrainTrainer(pl.LightningModule):
             t_patch_interp = F.interpolate(
                 t_patch,
                 size=(s_patch.shape[2], s_patch.shape[3], s_patch.shape[4]),
-                mode="trilinear",
-                align_corners=False,
+                mode="area",
             )
 
             if zip_idx == n - 1:
@@ -318,17 +331,18 @@ class PretrainTrainer(pl.LightningModule):
         )
 
         if torch.any(~torch.isfinite(loss_dict["loss"])):
+            # if running on a single device, this will skip the step and training can proceed.
             loss_dict = {"loss": None}
             was_problem = True
             self.nan_counter += 1
 
         if was_problem:
-            print("=" * 25)
-            print()
-            print(f"{self.nan_counter=}")
-            print(batch["index"])
-            print()
-            print("=" * 25)
+            logger.info("=" * 25)
+            logger.info()
+            logger.info(f"{self.nan_counter=}")
+            logger.info(batch["index"])
+            logger.info()
+            logger.info("=" * 25)
 
         return loss_dict
 
@@ -393,6 +407,7 @@ class PretrainTrainer(pl.LightningModule):
     def configure_callbacks(self) -> Union[Sequence[Callback], Callback]:
         return [self.scheduler]
 
+    # check for ddp training. make sure there are no `"no gradient parameters"` as that is not allowed in ddp.
     # def on_after_backward(self):
     #     no_grad = []
     #     zero_grad = []

@@ -14,8 +14,11 @@ from torch.utils.data import get_worker_info
 from torch.utils.data import IterableDataset
 from sklearn.model_selection import train_test_split
 
+from med_adapt.utils.config import get_logger
 from med_adapt.registry import register_dataset
 from med_adapt.datasets.io import _percentile_zscore
+
+logger = get_logger(__name__)
 
 
 @register_dataset("OpenMind")
@@ -109,14 +112,14 @@ class OpenNeuroDataset(IterableDataset):
 
         array = blosc2.open(str(path))
         image = np.asarray(array, dtype=np.float32)
-        # image = np.zeros((1, 224, 224, 196), dtype=np.float32)
+        # image = np.random.default_rng(0).standard_normal((1, 224, 224, 196), dtype=np.float32)
 
         if np.isnan(image).any():
-            print("=" * 25)
-            print(f"NAN FOUND IN TRAINING DATA")
-            print(path)  # for debug and getting rid of perhaps
-            print()
-            print("=" * 25)
+            logger.info("=" * 25)
+            logger.info(f"NAN FOUND IN TRAINING DATA")
+            logger.info(path)  # for debug and getting rid of perhaps
+            logger.info()
+            logger.info("=" * 25)
 
             rng = np.random.default_rng(0)
             image = rng.standard_normal(
