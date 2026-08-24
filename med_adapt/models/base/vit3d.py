@@ -47,8 +47,8 @@ class ViT3D(ViTv2):
 
     def __init__(
         self,
-        volume_size=(224, 224, 128),
-        volume_patch_size=(14, 14, 8),
+        volume_size=(296, 296, 296),
+        volume_patch_size=(8, 8, 8),
         med_in_channels=1,
         use_patch_decode=True,
         use_mask=True,
@@ -198,8 +198,8 @@ def init_weights_vit_3d(module: nn.Module, name: str = "") -> None:
 
 @register_model("vitv2_3d_tiny")
 def vitv2_3d_tiny(
-    volume_size: INT_TUP3 = 196,
-    volume_patch_size: INT_TUP3 = 14,
+    volume_size: INT_TUP3 = 296,
+    volume_patch_size: INT_TUP3 = 8,
     med_in_channels=1,
     num_register_tokens=0,
     **kwargs,
@@ -223,8 +223,8 @@ def vitv2_3d_tiny(
 
 @register_model("vitv2_3d_small")
 def vitv2_3d_small(
-    volume_size: INT_TUP3 = 196,
-    volume_patch_size: INT_TUP3 = 14,
+    volume_size: INT_TUP3 = 296,
+    volume_patch_size: INT_TUP3 = 8,
     med_in_channels=1,
     num_register_tokens=0,
     **kwargs,
@@ -248,8 +248,8 @@ def vitv2_3d_small(
 
 @register_model("vitv2_3d_base")
 def vitv2_3d_base(
-    volume_size: INT_TUP3 = 196,
-    volume_patch_size: INT_TUP3 = 14,
+    volume_size: INT_TUP3 = 296,
+    volume_patch_size: INT_TUP3 = 8,
     med_in_channels=1,
     num_register_tokens=0,
     **kwargs,
@@ -273,8 +273,8 @@ def vitv2_3d_base(
 
 @register_model("vitv2_3d_large")
 def vitv2_3d_large(
-    volume_size: INT_TUP3 = 196,
-    volume_patch_size: INT_TUP3 = 14,
+    volume_size: INT_TUP3 = 296,
+    volume_patch_size: INT_TUP3 = 8,
     med_in_channels=1,
     num_register_tokens=0,
     **kwargs,

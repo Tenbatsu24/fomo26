@@ -5,8 +5,10 @@ from typing import Any, Dict, List, Optional, Tuple, Union, Literal
 
 import torch
 import numpy as np
+import torch.distributed as dist
 
-from torch.utils.data import Dataset
+from torch.utils.data import get_worker_info
+from torch.utils.data import IterableDataset
 from sklearn.model_selection import KFold, StratifiedKFold
 
 from med_adapt.utils.config import get_logger
@@ -17,7 +19,6 @@ from .io import (
     normalize_subject_name,
     read_labels,
     resample_nifti,
-    resample_volume,
     resize_volume,
 )
 from .statistics import (
@@ -45,7 +46,7 @@ def set_seed(seed: int) -> None:
 # =============================================================================
 
 
-class MedicalTaskDataset(Dataset):
+class MedicalTaskDataset(IterableDataset):
     FOLDER_NAME: str = ""
     TASK_NAME: str = ""
     TASK_TYPE: str = ""
@@ -98,13 +99,13 @@ class MedicalTaskDataset(Dataset):
         if seed is not None:
             set_seed(seed)
 
-        self.samples = self._build_samples()
+        samples = self._build_samples()
 
         logger.info(
-            f"{self.TASK_NAME} | total samples: {len(self.samples)}",
+            f"{self.TASK_NAME} | total samples: {len(samples)}",
         )
 
-        self.samples = self._apply_split(self.samples)
+        self.samples = self._apply_split(samples)
 
         logger.info(
             f"{self.TASK_NAME} | selected samples: {len(self.samples)}",
@@ -141,24 +142,7 @@ class MedicalTaskDataset(Dataset):
 
         self.resize_to = resize_to
 
-    # -------------------------------------------------------------------------
-    # Sample discovery
-    # -------------------------------------------------------------------------
-
     def _get_subject_directories(self) -> List[Path]:
-        """
-        Discover subject directories under labels/ or preprocessed/.
-
-        Example:
-
-            Task_1/
-            ├── labels/
-            │   ├── sub-01/
-            │   └── sub-02/
-            └── preprocessed/
-                ├── sub-01/
-                └── sub-02/
-        """
         base_dir = self.task_dir / "preprocessed"
 
         if not base_dir.exists():
@@ -196,29 +180,6 @@ class MedicalTaskDataset(Dataset):
         return sessions[0]
 
     def _build_samples(self) -> List[Dict[str, Any]]:
-        """
-        Build samples from the directory structure.
-
-        Expected structure:
-
-            Task_X/
-            ├── labels/
-            │   └── sub-01/
-            │       └── ses-01/
-            │           └── label.txt
-            └── preprocessed/
-                └── sub-01/
-                    └── ses-01/
-                        └── adc.nii.gz
-                        └── ...
-
-        For classification/regression:
-            label.txt must contain one numeric value.
-
-        For segmentation:
-            the target is MASK_FILENAME, e.g. seg.nii.gz.
-        """
-
         subject_dirs = self._get_subject_directories()
 
         samples = []
@@ -286,27 +247,10 @@ class MedicalTaskDataset(Dataset):
 
         return samples
 
-    # -------------------------------------------------------------------------
-    # Splitting
-    # -------------------------------------------------------------------------
-
     def _apply_split(
         self,
         samples: List[Dict[str, Any]],
     ) -> List[Dict[str, Any]]:
-        """
-        Apply a fold-based split.
-
-        If either fold or seed is None:
-            return all samples.
-
-        fold:
-            Test fold index.
-
-        seed:
-            Random state for reproducibility.
-        """
-
         if self.fold is None or self.seed is None:
             logger.info(
                 f"{self.TASK_NAME} | no fold split requested; using all samples",
@@ -320,54 +264,71 @@ class MedicalTaskDataset(Dataset):
 
         indices = np.arange(len(samples))
 
-        if self.TASK_TYPE == "classification":
-
-            labels = np.asarray([int(sample["label"]) for sample in samples])
-
-            splitter = StratifiedKFold(
-                n_splits=self.n_splits,
-                shuffle=True,
-                random_state=self.seed,
-            )
-
-            splits = splitter.split(indices, labels)
-
-        else:
-
-            splitter = KFold(
-                n_splits=self.n_splits,
-                shuffle=True,
-                random_state=self.seed,
-            )
-
-            splits = splitter.split(indices)
-
-        for current_fold, (train_indices, test_indices) in enumerate(splits):
-
-            if current_fold == self.fold:
-
-                if self.split == "train":
-                    selected_indices = train_indices
-                else:
-                    selected_indices = test_indices
-
-                logger.info(
-                    f"{self.TASK_NAME} | fold={self.fold} | seed={self.seed} | selected={len(selected_indices)}",
+        if self.split in ["train", "val"]:
+            if self.TASK_TYPE == "classification":
+                labels = np.asarray([int(sample["label"]) for sample in samples])
+                splitter = StratifiedKFold(
+                    n_splits=self.n_splits,
+                    shuffle=True,
+                    random_state=self.seed,
                 )
+                splits = splitter.split(indices, labels)
+            else:
+                splitter = KFold(
+                    n_splits=self.n_splits,
+                    shuffle=True,
+                    random_state=self.seed,
+                )
+                splits = splitter.split(indices)
 
-                return [samples[int(index)] for index in selected_indices]
+            for current_fold, (train_indices, test_indices) in enumerate(splits):
+                if current_fold == self.fold:
+                    if self.split == "train":
+                        selected_indices = train_indices
+                    else:
+                        selected_indices = test_indices
+
+                    logger.info(
+                        f"{self.TASK_NAME} | fold={self.fold} | seed={self.seed} | selected={len(selected_indices)}",
+                    )
+
+                    return [samples[int(index)] for index in selected_indices]
+        else:
+            return [samples[int(index)] for index in indices]
 
         raise RuntimeError("Unable to create requested fold.")
 
-    # -------------------------------------------------------------------------
-    # Dataset API
-    # -------------------------------------------------------------------------
+    def __iter__(self):
+        world_size = dist.get_world_size() if dist.is_initialized() else 1
+        rank = dist.get_rank() if dist.is_initialized() else 0
+
+        worker_info = get_worker_info()
+
+        if worker_info is None:
+            worker_id = 0
+            num_workers = 1
+        else:
+            worker_id = worker_info.id
+            num_workers = worker_info.num_workers
+
+        global_workers = world_size * num_workers
+        global_worker_id = rank * num_workers + worker_id
+
+        rng = random.Random(self.seed)
+
+        while True:
+            indices = list(range(len(self)))
+
+            if self.split == "train":
+                rng.shuffle(indices)
+
+            for idx in indices[global_worker_id::global_workers]:
+                yield self[idx]
 
     def __len__(self) -> int:
         return len(self.samples)
 
     def __getitem__(self, index: int) -> Dict[str, Any]:
-
         sample = self.samples[index]
 
         images = []
@@ -442,17 +403,7 @@ class MedicalTaskDataset(Dataset):
 
         return sample_dict
 
-    # -------------------------------------------------------------------------
-    # Gallery
-    # -------------------------------------------------------------------------
-
     def create_gallery(self) -> None:
-        """Create and save an example gallery image.
-
-        This is intentionally *not* called automatically in ``__init__``
-        because loading and rendering every sample is computationally heavy.
-        Call this method explicitly when you need the gallery.
-        """
         create_gallery(
             self.samples,
             self.NUM_MODALITIES,

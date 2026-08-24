@@ -16,7 +16,6 @@ from torchvision import transforms
 from lightning.pytorch.loggers import CSVLogger
 from lightning.pytorch.callbacks import ModelCheckpoint, LearningRateMonitor
 
-from med_adapt.augs import CenterCrop3D
 from med_adapt.registry import STORE
 from med_adapt.utils.naming import get_run_name
 from med_adapt.datasets import build_dataloaders
@@ -31,13 +30,13 @@ from med_adapt.augs.custom import (
     PadToShape3D,
     RandomSwapSpatialDims3D,
     RandomFlipSpatialDims3D,
+    Resize3D,
 )
 from med_adapt.trainer import (
     ClassificationTrainer,
     RegressionTrainer,
     SegmentationTrainer,
 )
-from med_adapt.utils.lora import convert_state_dict
 
 logger = get_logger(__name__)
 
@@ -98,13 +97,12 @@ def build_cpu_transforms(crop_size, training, task):
         tforms = [
             RandomSwapSpatialDims3D(label_key=label_key),
             RandomFlipSpatialDims3D(label_key=label_key),
-            RandomResizedCrop3D(size=crop_size, label_key=label_key),
+            RandomResizedCrop3D(size=crop_size, label_key=label_key, scale=(0.7, 1.0)),
             PadToShape3D(size=crop_size, label_key=label_key),
         ]
     else:
         tforms = [
-            PadToShape3D(size=crop_size, label_key=label_key),
-            CenterCrop3D(size=crop_size, label_key=label_key),
+            Resize3D(size=crop_size, label_key=label_key),
         ]
     return transforms.Compose(tforms) if tforms else None
 
@@ -120,89 +118,14 @@ def build_model(config, task, n_modalities, n_classes, lora, mea):
         registry_key = f"vitv2_a_3d_{size}"
 
     builder = STORE.get("models", registry_key)
-    if variant == "2d":
-        return builder(
-            med_in_channels=n_modalities,
-            task=task,
-            classes=n_classes,
-            lora=lora,
-            mea=mea,
-        )
-    else:
-        return builder(
-            med_in_channels=n_modalities,
-            task=task,
-            classes=n_classes,
-            lora=lora,
-            mea=mea,
-            use_mask=False,
-            use_patch_decode=task == "segmentation",
-        )
 
-
-def export_model_to_onnx(
-    checkpoint_path: Path,
-    config,
-    task,
-    n_modalities,
-    n_classes,
-    run_dir: Path,
-    checkpoint_name: str = "model",
-):
-    import torch.onnx
-
-    ckpt = torch.load(checkpoint_path, map_location="cpu")
-    if isinstance(ckpt, dict) and "state_dict" in ckpt:
-        ckpt = ckpt["state_dict"]
-
-    if config.model.lora:
-        ckpt = convert_state_dict(ckpt, to_lora=False)
-        logger.info(
-            "[main] Converted LoRA state dict → plain for {name}.onnx",
-            name=checkpoint_name,
-        )
-
-    model = build_model(config, task, n_modalities, n_classes, lora=False, mea=False)
-
-    result = model.load_state_dict(
-        {
-            (k.replace("model.", "") if k.startswith("model.") else k): v
-            for k, v in ckpt.items()
-        },
-        strict=True,
+    return builder(
+        n_modalities=n_modalities,
+        task=task,
+        classes=n_classes,
+        lora=lora,
+        mea=mea,
     )
-    if result.missing_keys:
-        logger.warning(
-            "[main] Missing keys when loading {name}: {keys}",
-            name=checkpoint_name,
-            keys=result.missing_keys,
-        )
-    if result.unexpected_keys:
-        logger.warning(
-            "[main] Unexpected keys when loading {name}: {keys}",
-            name=checkpoint_name,
-            keys=result.unexpected_keys,
-        )
-
-    model.eval()
-
-    crop_size = tuple(config.data.crop_size)
-    dummy_input = torch.randn(1, n_modalities, crop_size[0], crop_size[1], crop_size[2])
-    onnx_path = run_dir / f"{checkpoint_name}.onnx"
-    torch.onnx.export(
-        model,
-        dummy_input,
-        str(onnx_path),
-        opset_version=18,
-        input_names=["input"],
-        output_names=["output"],
-        dynamic_axes={
-            "input": {0: "batch"},
-            "output": {0: "batch"},
-        },
-    )
-    logger.info(f"[main] ONNX model saved to {onnx_path}")
-    return onnx_path
 
 
 def find_best_checkpoint(run_dir, metric, mode):
@@ -242,114 +165,6 @@ def find_best_checkpoint(run_dir, metric, mode):
     return max(checkpoints, key=lambda p: p.stat().st_mtime)
 
 
-def run_test_mode(
-    config,
-    dataset_name,
-    dataset_class,
-    task,
-    n_modalities,
-    n_classes,
-    fold,
-    seed,
-    checkpoint_path=None,
-):
-    """Run standalone test evaluation on a saved checkpoint."""
-    metric = (
-        "acc"
-        if task == "classification"
-        else "dice" if task == "segmentation" else "l2"
-    )
-
-    run_name = get_run_name(
-        dataset_name,
-        config.model.size,
-        config.model.variant,
-        config.model.lora,
-    )
-    results_path = get_results_path()
-    run_dir = Path(results_path) / run_name / f"fold{fold}"
-
-    if checkpoint_path is None:
-        checkpoint_path = find_best_checkpoint(
-            run_dir,
-            metric,
-            "max" if task in ["classification", "segmentation"] else "min",
-        )
-
-    if checkpoint_path is None:
-        logger.warning("[main] No checkpoint found in {run_dir}. Nothing to test.")
-        return
-
-    logger.info("[main] Loading checkpoint: {ckpt}", ckpt=checkpoint_path)
-
-    model = build_model(
-        config, task, n_modalities, n_classes, lora=config.model.lora, mea=True
-    )
-    crop_size = tuple(config.data.crop_size)
-    test_transforms = build_cpu_transforms(crop_size, training=False, task=task)
-    train_dl, val_dl, test_dl = build_dataloaders(
-        dataset_class=dataset_class,
-        root=str(get_data_path()),
-        fold=fold,
-        seed=seed,
-        batch_size=1,
-        num_workers=config.data.num_workers,
-        test_transforms=test_transforms,
-        resample_spacing=config.data.resample_spacing,
-    )
-
-    # Load checkpoint weights only
-    ckpt = torch.load(checkpoint_path, map_location="cpu")
-    if isinstance(ckpt, dict) and "state_dict" in ckpt:
-        ckpt = ckpt["state_dict"]
-    model.load_state_dict(ckpt, strict=False)
-
-    # Disable pretrained loading in test mode — we already loaded the test checkpoint above.
-    config["pretrained"]["checkpoint"] = None
-    trainer = TRAINER_CLASSES[task](
-        config=config,
-        model=model,
-        gpu_augmentations=default_disable_aug(ndim=3),
-    )
-
-    # Export the final model to ONNX before running test.
-    export_model_to_onnx(
-        checkpoint_path,
-        config,
-        task,
-        n_modalities,
-        n_classes,
-        run_dir,
-        checkpoint_name="best",
-    )
-
-    run_name_test = f"{run_name}-test"
-    results_path = get_results_path()
-    logger_obj = CSVLogger(results_path, name=run_name_test, version=f"fold{fold}")
-
-    pl_trainer = pl.Trainer(
-        precision=config.trainer.precision,
-        accelerator=config.trainer.accelerator,
-        devices=config.trainer.devices,
-        strategy=config.trainer.strategy,
-        logger=logger_obj,
-        enable_progress_bar=True,
-        enable_checkpointing=False,
-    )
-
-    pl_trainer.test(trainer, dataloaders=test_dl)
-
-    test_logs = logger_obj.experiment.aggregates
-    logger.info(
-        "\n[main] Test metrics for {run_name} fold {fold}:",
-        run_name=run_name,
-        fold=fold,
-    )
-    for key, val in test_logs.items():
-        if isinstance(val, list) and val:
-            logger.info("  {key}: {val:.4f}", key=key, val=val[-1])
-
-
 def main():
     parser = argparse.ArgumentParser(description="med_adapt training")
     parser.add_argument("--config", type=str, required=True)
@@ -369,20 +184,6 @@ def main():
     dataset_name = config.data.dataset_name
     dataset_class = STORE.get("datasets", dataset_name)
     task = dataset_class.TASK_TYPE
-
-    if args.test:
-        run_test_mode(
-            config=config,
-            dataset_name=dataset_name,
-            dataset_class=dataset_class,
-            task=task,
-            n_modalities=dataset_class.NUM_MODALITIES,
-            n_classes=dataset_class.NUM_CLASSES,
-            fold=args.fold,
-            seed=config.seed,
-            checkpoint_path=args.checkpoint,
-        )
-        return
 
     n_modalities = dataset_class.NUM_MODALITIES
     n_classes = dataset_class.NUM_CLASSES
@@ -416,7 +217,6 @@ def main():
         train_transforms=train_cpu_transforms,
         val_transforms=val_cpu_transforms,
         val_drop_last=False,
-        resample_spacing=config.data.resample_spacing,
     )
 
     if config.enable_aug:
@@ -475,29 +275,6 @@ def main():
     )
 
     pl_trainer.fit(trainer, train_dataloaders=train_dl, val_dataloaders=val_dl)
-
-    # Export both checkpoints to ONNX.
-    export_model_to_onnx(
-        Path(checkpoint_callback.best_model_path),
-        config,
-        task,
-        n_modalities,
-        n_classes,
-        log_dir,
-        checkpoint_name="best",
-    )
-
-    last_path = Path(last_checkpoint_callback.last_model_path)
-    if last_path.exists():
-        export_model_to_onnx(
-            last_path,
-            config,
-            task,
-            n_modalities,
-            n_classes,
-            log_dir,
-            checkpoint_name="last",
-        )
 
     logger.info("\n[main] Running test evaluation on fold {fold}...", fold=fold)
     pl_trainer.test(trainer, dataloaders=val_dl)

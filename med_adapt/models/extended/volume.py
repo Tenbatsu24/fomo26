@@ -3,8 +3,9 @@ from typing import Literal, Mapping, Any, Optional
 
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
 
+from med_adapt.adapter import AttentionPooling
+from med_adapt.adapter.channel_adapter import ConvexModalityAdapter
 from med_adapt.models.base import ViT3D
 from med_adapt.registry import register_model
 from med_adapt.utils.config import get_logger
@@ -43,65 +44,57 @@ class ViT3DAdaption(ViT3D):
     def __init__(
         self,
         *,
+        n_modalities,
         task: Literal["regression", "classification", "segmentation", "none"],
         classes: int,
         pred_from: Optional[int] = None,
+        num_q_tokens: Optional[int] = None,
         **kwargs,
     ):
         super(ViT3DAdaption, self).__init__(**kwargs)
 
         self.task = task
         self.classes = classes
+        self.n_modalities = n_modalities
 
         if pred_from is None:
-            pred_from = -6
+            pred_from = -3
 
         self.pred_from = len(self.blocks) + pred_from if pred_from < 0 else pred_from
 
-        if task not in ["segmentation", "none"]:
-            self.num_q_tokens = 0 if task != "classification" else classes
+        if n_modalities != 1:
+            self.channel_adapter = ConvexModalityAdapter(self.n_modalities)
+        else:
+            self.channel_adapter = nn.Identity()
+
+        if task in ["classification", "regression"]:
+            self.num_q_tokens = num_q_tokens if num_q_tokens is not None else 32
             self.query_tokens = nn.Parameter(
-                torch.zeros(1, self.num_q_tokens, self.embed_dim), requires_grad=True
+                torch.zeros(1, self.num_q_tokens, self.embed_dim)
             )
             nn.init.normal_(self.query_tokens, std=1e-6)
-        else:
-            self.query_tokens = None
-            self.query_mlp = None
+            self.attn_pool = AttentionPooling(self.embed_dim, num_heads=4)
+            self.query_norm = nn.LayerNorm(self.embed_dim, eps=1e-6)
+            self.head = nn.Linear(self.embed_dim, self.classes, bias=True)
+        elif task == "segmentation":
             self.num_q_tokens = 0
-
-        if task == "segmentation":
-            self.patch_decode = ScaleDecode(self.patch_size, self.embed_dim, classes)
-        elif task == "classification":
-            self.query_mlp = nn.Sequential(
-                nn.Linear(self.embed_dim, self.embed_dim, bias=True),
-                nn.GELU(),
-                nn.Linear(self.embed_dim, self.embed_dim // 4, bias=True),
-                nn.GELU(),
-                nn.Linear(self.embed_dim // 4, classes, bias=False),
-            )
+            self.query_tokens = None
+            self.head = ScaleDecode(self.patch_size, self.embed_dim, classes)
         else:
-            self.query_mlp = nn.ModuleDict(
-                {
-                    f"reg_{i}": nn.Sequential(
-                        nn.Linear(self.embed_dim, self.embed_dim, bias=True),
-                        nn.GELU(),
-                        nn.Linear(self.embed_dim, self.embed_dim // 4, bias=True),
-                        nn.GELU(),
-                        nn.Linear(self.embed_dim // 4, 1, bias=True),
-                    )
-                    for i in range(self.num_q_tokens)
-                }
-            )
+            self.num_q_tokens = 1
+            self.query_tokens = nn.Parameter(torch.zeros(1, 1, self.embed_dim))
+            self.query_norm = nn.LayerNorm(self.embed_dim, eps=1e-6)
 
     def forward(self, x, **kwargs):
         b, c, h, w, d = x.shape
         lp = tuple(l // p for l, p in zip([h, w, d], self.patch_size))
 
-        x = self.prepare_tokens(x)
+        x = self.prepare_tokens(self.channel_adapter(x))
 
         preds = []
 
         for i, blk in enumerate(self.blocks):
+
             if (self.query_tokens is not None) and (i == self.pred_from):
                 x = torch.cat((self.query_tokens.repeat(b, 1, 1), x), dim=1)
 
@@ -109,104 +102,36 @@ class ViT3DAdaption(ViT3D):
             x = blk(x)
 
             if i >= self.pred_from:
-                if self.task == "segmentation":
+                if self.task in ["segmentation", "none"]:
                     patch_tokens = self.norm(
                         x[:, self.num_q_tokens + self.num_register_tokens + 1 :, :]
                     )
-
                     spatial = patch_tokens.unflatten(1, lp).permute(0, -1, 1, 2, 3)
-                    preds.append(self.patch_decode(spatial))
-                else:
-                    if self.task == "none":
-                        preds.append(
-                            self.norm(x[:, : self.num_register_tokens + 1, :])[:, 0]
-                        )
+                    if self.task == "segmentation":
+                        preds.append(self.head(spatial))
                     else:
-                        query_logits = self.norm(
-                            x[:, : self.num_q_tokens, :]
-                        )  # [B, q, d]
-                        if self.task == "classification":
-                            cls_pred = self.query_mlp(query_logits[:, 0])
-                            preds.append(cls_pred)
-                        else:  # self.task == "regression":
-                            reg_pred = torch.stack(
-                                [
-                                    self.query_mlp[f"class_{i}"](query_logits[:, i, :])[
-                                        :, 0
-                                    ]
-                                    for i in range(self.num_q_tokens)
-                                ],
-                                dim=-1,
-                            )
-                            preds.append(reg_pred)
+                        query_latent = self.query_norm(x[:, : self.num_q_tokens, :])[
+                            :, 0, :
+                        ]  # [B, q, d]
+                        preds.append((query_latent, spatial))
+                else:
+                    query_latent = self.query_norm(
+                        x[:, : self.num_q_tokens, :]
+                    )  # [B, q, d]
+                    pooled_queries = self.attn_pool(query_latent)[:, 0, :]
+                    logits = self.head(pooled_queries)
+                    preds.append(logits)
         return preds
 
     def load_state_dict(
         self, state_dict: Mapping[str, Any], strict: bool = True, assign: bool = False
     ):
         state_dict = possibly_clean_lightning_sd(state_dict)
-        model_ps = self.patch_size
 
-        new_state_dict = {**state_dict}
-
-        ckpt_ps = state_dict["patch_embed.proj.weight"].shape[2:]
-        if model_ps != ckpt_ps:
-            w_ckpt = state_dict["patch_embed.proj.weight"]
-            kd_model = model_ps[2]
-            kd_ckpt = ckpt_ps[2]
-            logger.info(f"Resampling patch_embed depth: {kd_ckpt} -> {kd_model}")
-            w_resampled = F.interpolate(
-                w_ckpt,
-                size=model_ps,
-                mode="trilinear",
-                align_corners=False,
-            )
-            new_state_dict["patch_embed.proj.weight"] = w_resampled
-            logger.info(f"  weight: {w_ckpt.shape} -> {w_resampled.shape}")
-        else:
-            logger.info(f"Keeping trained patch size: {ckpt_ps}")
-
-        ckpt_inch = new_state_dict["patch_embed.proj.weight"].shape[1]
-        if self.in_channels != ckpt_inch:
-            logger.info(f" in_ch: {ckpt_inch} -> {self.in_channels}")
-            new_proj = (
-                new_state_dict["patch_embed.proj.weight"]
-                .mean(dim=1, keepdim=True)
-                .repeat(1, self.in_channels, 1, 1, 1)
-            )
-            new_state_dict["patch_embed.proj.weight"] = new_proj
-        else:
-            logger.info(f"Keeping original trained patch_embed: {ckpt_inch}")
-
-        if self.task == "segmentation" and any(
-            ["patch_decode" in k for k in new_state_dict.keys()]
-        ):
-            ckpt_outch = new_state_dict["patch_decode.head.weight"].shape[0]
-            if self.classes != ckpt_outch:
-                logger.info(f"out_ch: {ckpt_outch} -> {self.classes}")
-                new_proj = (
-                    new_state_dict["patch_decode.head.weight"]
-                    .mean(dim=0, keepdim=True)
-                    .repeat(self.classes, 1, 1, 1, 1)
-                )
-                new_state_dict["patch_decode.head.weight"] = new_proj
-                new_bias = (
-                    new_state_dict["patch_decode.head.bias"]
-                    .mean(dim=0, keepdim=True)
-                    .repeat(self.classes)
-                )
-                new_state_dict["patch_decode.head.bias"] = new_bias
-
-        del state_dict
-
-        return super().load_state_dict(new_state_dict, strict=strict, assign=assign)
+        return super().load_state_dict(state_dict, strict=strict, assign=assign)
 
     def additional_trainable(self):
-        return [
-            "query_mlp",
-            "query_tokens",
-            "patch_decode",
-        ]
+        return ["attn_pool", "query_tokens", "query_norm", "head", "channel_adapter"]
 
 
 @register_model("vitv2_a_3d_tiny")
@@ -231,6 +156,9 @@ def vitv2_a_3d_tiny(
             ),
         ),
         num_register_tokens=0,
+        med_in_channels=1,
+        use_mask=False,
+        use_patch_decode=False,
         **kwargs,
     )
     return model
@@ -258,6 +186,9 @@ def vitv2_a_3d_small(
             ),
         ),
         num_register_tokens=0,
+        med_in_channels=1,
+        use_mask=False,
+        use_patch_decode=False,
         **kwargs,
     )
     return model
@@ -285,6 +216,9 @@ def vitv2_a_3d_base(
             ),
         ),
         num_register_tokens=0,
+        med_in_channels=1,
+        use_mask=False,
+        use_patch_decode=False,
         **kwargs,
     )
     return model
@@ -312,6 +246,9 @@ def vitv2_a_3d_large(
             ),
         ),
         num_register_tokens=0,
+        med_in_channels=1,
+        use_mask=False,
+        use_patch_decode=False,
         **kwargs,
     )
     return model
@@ -319,14 +256,15 @@ def vitv2_a_3d_large(
 
 if __name__ == "__main__":
     _m = vitv2_a_3d_small(
-        med_in_channels=1,
-        task="segmentation",
+        modalities=1,
+        task="none",
         classes=2,
         lora=False,
+        mea=True,
     ).to("cuda")
 
     _missing, _unexpected = _m.load_state_dict(
-        torch.load("../../../checkpoints/small/neco_3d/last.ckpt"),
+        torch.load("../../../checkpoints/small/296_518/last.ckpt"),
         strict=False,
     )
     print(
@@ -334,7 +272,11 @@ if __name__ == "__main__":
     )
     print(
         [
-            _out.shape
+            (
+                _out.shape
+                if isinstance(_out, torch.Tensor)
+                else [_out_i.shape for _out_i in _out]
+            )
             for _out in _m(
                 torch.randn(1, 1, 196, 196, 24, device="cuda", dtype=torch.float32)
             )

@@ -20,8 +20,6 @@ def build_dataloaders(
     test_transforms=None,
     n_splits: int = 5,
     val_drop_last: bool = False,
-    resample_spacing=None,
-    resize_to=None,
 ) -> tuple[DataLoader, DataLoader, DataLoader]:
 
     if num_val_workers is None:
@@ -34,8 +32,6 @@ def build_dataloaders(
         seed=seed,
         n_splits=n_splits,
         transform=train_transforms,
-        resample_spacing=resample_spacing,
-        resize_to=resize_to,
     )
     val_ds = dataset_class(
         root=root,
@@ -44,18 +40,11 @@ def build_dataloaders(
         seed=seed,
         n_splits=n_splits,
         transform=val_transforms,
-        resample_spacing=resample_spacing,
-        resize_to=resize_to,
     )
     test_ds = dataset_class(
         root=root,
-        split="val",
-        fold=fold,
-        seed=seed,
-        n_splits=n_splits,
+        split="all",
         transform=test_transforms,
-        resample_spacing=resample_spacing,
-        resize_to=resize_to,
     )
 
     train_dl = DataLoader(
@@ -65,14 +54,12 @@ def build_dataloaders(
         pin_memory=True,
         persistent_workers=(num_workers > 0),
         drop_last=True,
-        shuffle=True,
     )
     val_dl = DataLoader(
         val_ds,
         num_workers=num_val_workers,
         batch_size=1,
         pin_memory=False,
-        shuffle=False,
         persistent_workers=(num_val_workers > 0),
         drop_last=val_drop_last,
     )
@@ -81,7 +68,6 @@ def build_dataloaders(
         num_workers=num_val_workers,
         batch_size=1,
         pin_memory=False,
-        shuffle=False,
         persistent_workers=False,
     )
 

@@ -34,8 +34,8 @@ def preprocess_volume(volume: torch.Tensor) -> torch.Tensor:
     else:
         raise ValueError(f"Expected 1 or 3 input channels, got {C}")
 
-    ch_min = vol.amin(dim=(0, 1, 2), keepdim=True)
-    ch_max = vol.amax(dim=(0, 1, 2), keepdim=True)
+    ch_min = vol.amin(dim=(0, 1, 2, 3), keepdim=True)
+    ch_max = vol.amax(dim=(0, 1, 2, 3), keepdim=True)
 
     denom = ch_max - ch_min
     denom = torch.where(denom == 0, 1.0, denom)

@@ -9,28 +9,33 @@ class Resize3D:
 
     def __init__(
         self,
+        size,
         data_key="image",
         label_key="label",
-        target_size: tuple | list = None,
     ):
+        if size is None:
+            raise ValueError(
+                f"I can't resize if no size given, now can I? Passed {size=}"
+            )
+
         self.data_key = data_key
         self.label_key = label_key
-        self.target_size = tuple(target_size) if target_size else None
+
+        self.target_size = tuple(size)
 
     def __call__(self, data_dict):
         image = data_dict[self.data_key]
-        if self.target_size is not None:
-            # image shape: (C, H, W, D) -> interpolate expects (N, C, D, H, W)
-            resized = torch.nn.functional.interpolate(
-                image.unsqueeze(0),
-                size=self.target_size,
-                mode="trilinear",
-                align_corners=False,
-            ).squeeze(0)
-            # resized: (C, target_D, target_H, target_W) -> back to (C, target_H, target_W, target_D)
-            data_dict[self.data_key] = resized
+        # image shape: (C, H, W, D) -> interpolate expects (N, C, D, H, W)
+        resized = torch.nn.functional.interpolate(
+            image.unsqueeze(0),
+            size=self.target_size,
+            mode="trilinear",
+            align_corners=False,
+        ).squeeze(0)
+        # resized: (C, target_D, target_H, target_W) -> back to (C, target_H, target_W, target_D)
+        data_dict[self.data_key] = resized
 
-        if data_dict.get(self.label_key) is not None and self.target_size is not None:
+        if data_dict.get(self.label_key) is not None:
             label = data_dict[self.label_key]
             # label shape: (H, W, D) -> (N, C, D, H, W) for interpolate
             # Cast to float for interpolate, then back to original dtype.

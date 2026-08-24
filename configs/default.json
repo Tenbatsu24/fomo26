@@ -2,29 +2,24 @@
   "model": {
     "variant": "3d",
     "size": "small",
-    "lora": true,
-    "query_from": -6
+    "lora": false,
+    "query_from": -3
   },
   "pretrained": {
-    "checkpoint": "small/neco_3d/last.ckpt"
+    "checkpoint": "small/296_518/last.ckpt"
   },
   "data": {
     "dataset_name": "CLS002_FOMO26_Infarct",
     "crop_size": [
-      224,
-      224,
+      320,
+      320,
       32
-    ],
-    "volume_patch_size": [
-      14,
-      14,
-      8
     ],
     "batch_size": 2,
     "num_workers": 2,
-    "resample_spacing": "median"
+    "resample_spacing": null
   },
-  "enable_aug": true,
+  "enable_aug": false,
   "optimizer": {
     "type": "AdamW",
     "params": {
@@ -36,25 +31,25 @@
   },
   "trainer": {
     "accelerator": "auto",
-    "accumulate_grad_batches": 1,
+    "accumulate_grad_batches": 4,
     "benchmark": false,
     "deterministic": false,
     "devices": "auto",
-    "gradient_clip_algorithm": "norm",
-    "gradient_clip_val": 3.0,
-    "limit_val_batches": 1.0,
-    "max_epochs": 10,
+    "gradient_clip_val": 0.5,
+    "max_steps": 1000,
     "num_nodes": 1,
     "num_sanity_val_steps": 0,
     "precision": "32-true",
     "strategy": "auto",
     "sync_batchnorm": false,
-    "check_val_every_n_epoch": 1
+    "val_check_interval": 400,
+    "check_val_every_n_epoch": null,
+    "log_every_n_steps": 5
   },
   "scheduler": [
     [
       "lr",
-      "CatSched(LinSched(1e-8, 5e-4), CosSched(5e-4, 1e-9), 0.05)"
+      "CatSched(LinSched(1e-8, 2e-3), CosSched(2e-3, 1e-9), 0.05)"
     ],
     [
       "weight_decay",
@@ -63,9 +58,5 @@
   ],
   "loss": null,
   "metrics": null,
-  "test": {
-    "batch_size": 1,
-    "amp": false
-  },
   "seed": 42
 }
