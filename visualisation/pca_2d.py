@@ -175,15 +175,15 @@ def plot_volume_pca(
     pca_images: list[np.ndarray] = []
     cosine_images: list[np.ndarray] = []
 
+    pca = PCA(n_components=3, whiten=whiten)
+    slice_projs = pca.fit_transform(flat.cpu().numpy())  # [N_total, 3]
+    print(
+        f"PCA fitted on {slice_projs.shape[0]} patches, explained variance: {pca.explained_variance_ratio_}"
+    )
     for slice_idx, d in enumerate(slice_indices):
         start = slice_idx * h_p * w_p
         end = start + h_p * w_p
-
-        pca = PCA(n_components=3, whiten=whiten)
-        slice_proj = pca.fit_transform(flat[start:end].cpu().numpy())  # [N_total, 3]
-        print(
-            f"PCA fitted on {slice_proj.shape[0]} patches, explained variance: {pca.explained_variance_ratio_}"
-        )
+        slice_proj = slice_projs[start:end]
 
         # Min-max scale each component to [0, 1]
         pca_images.append(sigmoid(2 * slice_proj.reshape(h_p, w_p, 3)))
