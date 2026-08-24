@@ -300,13 +300,13 @@ if __name__ == "__main__":
     import math
 
     def main():
-        spatial = (112, 112, 160)
+        spatial = (112, 112, 224)
         ps = (8, 8, 8)
         resolution = [s // p for s, p in zip(spatial, ps)]
         dtype = torch.float16
 
         model = (
-            vitv2_3d_base(volume_size=spatial, volume_patch_size=ps, med_in_channels=1)
+            vitv2_3d_small(volume_size=spatial, volume_patch_size=ps, med_in_channels=1)
             .cuda()
             .to(dtype)
         )
