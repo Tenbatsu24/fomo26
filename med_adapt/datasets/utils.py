@@ -47,6 +47,9 @@ def build_dataloaders(
     test_ds = dataset_class(
         root=root,
         split="val",
+        fold=fold,
+        seed=seed,
+        n_splits=n_splits,
         transform=test_transforms,
         resample_spacing=resample_spacing,
     )
