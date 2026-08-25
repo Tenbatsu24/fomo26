@@ -29,9 +29,12 @@ logger = get_logger(__name__)
 def load_or_compute_statistics(
     samples: List[Dict[str, Any]],
     task_name: str,
+    folder_name: str,
+    task_type: str,
+    num_classes: int | None,
     statistics_path: Path,
     cases_path: Path,
-    modalities,
+    modalities: tuple[str, ...],
 ) -> Dict[str, Any]:
     if statistics_path.exists() and cases_path.exists():
         logger.info(
@@ -42,7 +45,15 @@ def load_or_compute_statistics(
 
     logger.info(f"{task_name} | computing dataset statistics")
 
-    statistics, per_case_rows = compute_statistics(samples, len(modalities), modalities)
+    statistics, per_case_rows = compute_statistics(
+        samples,
+        num_modalities=len(modalities),
+        modalities=modalities,
+        num_classes=num_classes,
+        task_name=task_name,
+        folder_name=folder_name,
+        task_type=task_type,
+    )
 
     with open(statistics_path, "w") as f:
         json.dump(statistics, f, indent=2)
@@ -122,8 +133,9 @@ def compute_statistics(
         resolutions.append(sample_shapes)
         spacing_per_modality.append(sample_spacings)
 
-    mean_per_channel = [float(np.mean(v)) for v in per_channel_mean]
-    std_per_channel = [float(np.mean(v)) for v in per_channel_std]
+    # Aggregated across cases via median (robust to outlier scans), not mean.
+    median_per_channel = [float(np.median(v)) for v in per_channel_mean]
+    std_per_channel = [float(np.median(v)) for v in per_channel_std]
 
     resolution_array = np.asarray(resolutions)
     spacing_array = np.asarray(spacing_per_modality)
@@ -136,20 +148,19 @@ def compute_statistics(
         "num_modalities": num_modalities,
         "modalities": list(modalities),
         "num_classes": num_classes,
-        "mean_per_channel": mean_per_channel,
+        "median_per_channel": median_per_channel,
         "std_per_channel": std_per_channel,
         "resolution": {
-            "mean": np.mean(resolution_array, axis=0).tolist(),
+            "median": np.median(resolution_array, axis=0).tolist(),
             "std": np.std(resolution_array, axis=0).tolist(),
             "min": np.min(resolution_array, axis=0).tolist(),
             "max": np.max(resolution_array, axis=0).tolist(),
         },
         "spacing": {
-            "mean": np.mean(spacing_array, axis=0).tolist(),
+            "median": np.median(spacing_array, axis=0).tolist(),
             "std": np.std(spacing_array, axis=0).tolist(),
             "min": np.min(spacing_array, axis=0).tolist(),
             "max": np.max(spacing_array, axis=0).tolist(),
-            "median": np.median(spacing_array, axis=0).tolist(),
         },
         "spacing_per_modality": spacing_array.tolist(),
     }
@@ -243,7 +254,7 @@ def save_histograms(
         axes[0, channel_index].hist(channel_values[channel_index], bins=100)
         axes[0, channel_index].set_title(
             f"{modality}\n"
-            f"mean={statistics['mean_per_channel'][channel_index]:.3f}, "
+            f"median={statistics['median_per_channel'][channel_index]:.3f}, "
             f"std={statistics['std_per_channel'][channel_index]:.3f}"
         )
         axes[0, channel_index].set_xlabel("Intensity")
@@ -281,8 +292,11 @@ def log_statistics(
 ) -> None:
     """Print a formatted summary of *statistics* to the logger."""
 
-    def _fmt(values: List[float]) -> str:
+    def _fmt_vector(values: List[float]) -> str:
         return "[" + " ".join(f"{v:.3f}" for v in values) + "]"
+
+    def _fmt_per_modality(vectors: List[List[float]]) -> str:
+        return ", ".join(_fmt_vector(vector) for vector in vectors)
 
     logger.info("=" * 80)
     logger.info(task_name)
@@ -293,12 +307,14 @@ def log_statistics(
     if num_classes is not None:
         logger.info(f"Number of classes: {num_classes}")
 
-    logger.info(f"Mean per channel: {_fmt(statistics['mean_per_channel'])}")
-    logger.info(f"Std per channel: {_fmt(statistics['std_per_channel'])}")
-    logger.info(f"Mean resolution: {[
-            _fmt(ch) for ch in statistics['resolution']['mean']
-        ]}")
-    logger.info(f"Mean spacing: {[
-            _fmt(ch) for ch in statistics['spacing']['mean']
-        ]}")
+    logger.info(
+        f"Median intensity per channel: {_fmt_vector(statistics['median_per_channel'])}"
+    )
+    logger.info(f"Median std per channel: {_fmt_vector(statistics['std_per_channel'])}")
+    logger.info(
+        f"Median resolution per modality: {_fmt_per_modality(statistics['resolution']['median'])}"
+    )
+    logger.info(
+        f"Median spacing per modality: {_fmt_per_modality(statistics['spacing']['median'])}"
+    )
     logger.info("=" * 80)

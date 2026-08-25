@@ -30,15 +30,41 @@ from .visualisation import create_gallery
 logger = get_logger(__name__)
 
 
-# =============================================================================
-# Utilities
-# =============================================================================
-
-
 def set_seed(seed: int) -> None:
     random.seed(seed)
     np.random.seed(seed)
     torch.manual_seed(seed)
+
+
+_AGE_BUCKET_EDGES: Tuple[int, ...] = (20, 30, 40, 50, 60, 70, 80, 90)
+
+
+def _classification_labels(samples: List[Dict[str, Any]]) -> np.ndarray:
+    return np.asarray([int(sample["label"]) for sample in samples])
+
+
+def _age_bucket_labels(samples: List[Dict[str, Any]]) -> np.ndarray:
+    """Bucket brain-age regression targets for stratified splitting.
+
+    Buckets: <20, 20-30, 30-40, 40-50, 50-60, 60-70, 70-80, 80-90, >=90.
+    """
+    ages = np.asarray([float(sample["label"]) for sample in samples])
+    return np.digitize(ages, _AGE_BUCKET_EDGES)
+
+
+def _segmentation_positivity_labels(samples: List[Dict[str, Any]]) -> np.ndarray:
+    """Label each sample by whether its mask contains any foreground voxel.
+
+    Used so the train/val split keeps a roughly similar ratio of
+    positive/negative scans in both folds, instead of letting a random
+    split concentrate positives in one side.
+    """
+    labels = []
+    for sample in samples:
+        mask, _, _ = load_nifti(sample["label"], is_mask=True)
+        mask = ensure_3d(mask, sample["label"])
+        labels.append(int(np.any(mask > 0)))
+    return np.asarray(labels)
 
 
 # =============================================================================
@@ -73,7 +99,7 @@ class MedicalTaskDataset(IterableDataset):
         resample_spacing: Optional[
             Union[Tuple[float, float, float], Literal["median"]]
         ] = None,
-        resize_to: Optional[Tuple[int, int, int]] = None,
+        resize_to: Optional[Union[Tuple[int, int, int], Literal["median"]]] = None,
     ):
         self.root = Path(root)
         self.split = split
@@ -119,6 +145,9 @@ class MedicalTaskDataset(IterableDataset):
         self.statistics = load_or_compute_statistics(
             self.samples,
             self.TASK_NAME,
+            self.FOLDER_NAME,
+            self.TASK_TYPE,
+            self.NUM_CLASSES,
             self.statistics_path,
             self.cases_path,
             self.MODALITIES,
@@ -133,15 +162,23 @@ class MedicalTaskDataset(IterableDataset):
         )
 
         if resample_spacing == "median":
-            spacing_array = np.asarray(self.statistics["spacing_per_modality"])
-            median_spacing = tuple(
-                float(np.median(spacing_array[:, dim])) for dim in range(3)
+            # Median spacing per modality is already cached in the
+            # statistics dict; collapse across modalities to a single
+            # (H, W, D) spacing.
+            spacing_median = np.median(
+                np.asarray(self.statistics["spacing"]["median"]), axis=0
             )
-            self.resample_spacing = median_spacing
+            self.resample_spacing = tuple(float(v) for v in spacing_median)
         else:
             self.resample_spacing = resample_spacing
 
-        self.resize_to = resize_to
+        if resize_to == "median":
+            resolution_median = np.median(
+                np.asarray(self.statistics["resolution"]["median"]), axis=0
+            )
+            self.resize_to = tuple(int(round(v)) for v in resolution_median)
+        else:
+            self.resize_to = resize_to
 
     def _get_subject_directories(self) -> List[Path]:
         base_dir = self.task_dir / "preprocessed"
@@ -267,20 +304,33 @@ class MedicalTaskDataset(IterableDataset):
 
         if self.split in ["train", "val"]:
             if self.TASK_TYPE == "classification":
-                labels = np.asarray([int(sample["label"]) for sample in samples])
+                strat_labels = _classification_labels(samples)
+            elif self.TASK_TYPE == "regression":
+                strat_labels = _age_bucket_labels(samples)
+            elif self.TASK_TYPE == "segmentation":
+                strat_labels = _segmentation_positivity_labels(samples)
+            else:
+                strat_labels = np.ones(len(samples))
+
+            try:
                 splitter = StratifiedKFold(
                     n_splits=self.n_splits,
                     shuffle=True,
                     random_state=self.seed,
                 )
-                splits = splitter.split(indices, labels)
-            else:
+                splits = list(splitter.split(indices, strat_labels))
+            except ValueError as exc:
+                # e.g. a bucket/class has fewer members than n_splits.
+                logger.warning(
+                    f"{self.TASK_NAME} | stratified split failed ({exc}); "
+                    f"falling back to a plain KFold split",
+                )
                 splitter = KFold(
                     n_splits=self.n_splits,
                     shuffle=True,
                     random_state=self.seed,
                 )
-                splits = splitter.split(indices)
+                splits = list(splitter.split(indices))
 
             for current_fold, (train_indices, test_indices) in enumerate(splits):
                 if current_fold == self.fold:

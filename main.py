@@ -27,7 +27,6 @@ from med_adapt.augs.default import (
 )
 from med_adapt.augs.custom import (
     RandomResizedCrop3D,
-    PadToShape3D,
     RandomSwapSpatialDims3D,
     RandomFlipSpatialDims3D,
     Resize3D,
@@ -100,7 +99,6 @@ def build_cpu_transforms(crop_size, training, task):
             RandomSwapSpatialDims3D(label_key=label_key),
             RandomFlipSpatialDims3D(label_key=label_key),
             RandomResizedCrop3D(size=crop_size, label_key=label_key, scale=(0.7, 1.0)),
-            PadToShape3D(size=crop_size, label_key=label_key),
         ]
     else:
         tforms = [
