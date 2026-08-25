@@ -3,7 +3,7 @@
     "variant": "3d",
     "size": "small",
     "lora": false,
-    "query_from": -3
+    "query_from": -1
   },
   "pretrained": {
     "checkpoint": "small/296_518.ckpt"
