@@ -251,31 +251,35 @@ class TemplateTrainer(pl.LightningModule):
             for k, v in batch_metrics.items()
             if not torch.all(torch.isnan(v))
         }
-        self.log_dict(metric_dict, prog_bar=True, on_epoch=False, on_step=True)
-
-    # ------------------------------------------------------------------
-    # Training / validation / test steps
-    # ------------------------------------------------------------------
+        self.log_dict(
+            metric_dict, prog_bar=True, on_epoch=False, on_step=True, logger=False
+        )
 
     def training_step(self, batch, batch_idx):
         loss, for_metrics = self.batch_to_loss(batch, train=True)
         loss = self.log_loss(
-            loss, prefix="train", prog_bar=True, on_epoch=False, on_step=True
+            loss,
+            prefix="train",
+            prog_bar=True,
+            on_epoch=False,
+            on_step=True,
         )
         if for_metrics:
             pred, gt = for_metrics
-            with torch.no_grad():
-                try:
-                    batch_metrics = self.train_metrics(pred, gt)
-                    self.log_metrics(batch_metrics)
-                except Exception as e:
-                    logger.error(
-                        f"Error computing training metrics {pred.shape=}, {gt.shape=}: {e}"
-                    )
+            self.train_metrics.update(pred.detach(), gt.detach())
+
         return loss["loss"] if isinstance(loss, dict) else loss
 
-    def on_train_epoch_end(self):
-        self.train_metrics.reset()
+    def on_before_optimizer_step(self, optimizer):
+        """
+        Called exactly once per optimizer step, after gradient accumulation.
+        """
+        try:
+            self.log_metrics(self.train_metrics.compute())
+        except Exception as e:
+            logger.error(f"Error computing training metrics: {e}")
+        finally:
+            self.train_metrics.reset()
 
     def validation_step(self, batch, batch_idx):
         loss, for_metrics = self.batch_to_loss(batch, train=False)

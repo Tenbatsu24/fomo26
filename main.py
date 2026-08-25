@@ -250,7 +250,7 @@ def main():
     csv_logger = CSVLogger(results_path, name=f"{run_name}/fold_{fold}")
     log_dir = Path(csv_logger.log_dir)
 
-    checkpoint_callback = ModelCheckpoint(
+    metric_callback = ModelCheckpoint(
         dirpath=log_dir,
         filename=f"step={{step}}-val_{metric}={{val/{metric}:.3f}}",
         monitor=f"val/{metric}",
@@ -261,6 +261,19 @@ def main():
         enable_version_counter=False,
         save_weights_only=True,
     )
+
+    loss_callback = ModelCheckpoint(
+        dirpath=log_dir,
+        filename=f"step={{step}}-val_loss={{val/loss:.3f}}",
+        monitor=f"val/loss",
+        auto_insert_metric_name=False,
+        save_top_k=1,
+        mode="min",
+        save_last=False,
+        enable_version_counter=False,
+        save_weights_only=True,
+    )
+
     last_checkpoint_callback = ModelCheckpoint(
         dirpath=log_dir,
         filename="last",
@@ -271,7 +284,12 @@ def main():
 
     pl_trainer = pl.Trainer(
         default_root_dir=log_dir,
-        callbacks=[checkpoint_callback, last_checkpoint_callback, lr_monitor],
+        callbacks=[
+            metric_callback,
+            loss_callback,
+            last_checkpoint_callback,
+            lr_monitor,
+        ],
         **config.trainer.to_dict(),
         logger=csv_logger,
     )
@@ -279,7 +297,12 @@ def main():
     pl_trainer.fit(trainer, train_dataloaders=train_dl, val_dataloaders=val_dl)
 
     logger.info("\n[main] Running test evaluation on fold {fold}...", fold=fold)
-    pl_trainer.test(trainer, dataloaders=val_dl)
+    pl_trainer.test(
+        trainer,
+        dataloaders=val_dl,
+        ckpt_path=loss_callback.best_model_path,
+        weights_only=True,
+    )
 
 
 if __name__ == "__main__":
