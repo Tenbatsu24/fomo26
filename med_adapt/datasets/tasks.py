@@ -159,15 +159,15 @@ if __name__ == "__main__":
 
     args = parser.parse_args()
 
-    root = Path("../../data")
+    root = Path("data")
 
     datasets = [
-        # Task1InfarctClassification,
-        Task1InfarctSegmentation,
-        # Task2MeningiomaSegmentation,
-        # Task3BrainAgeRegression,
-        # Task4TrigeminalNeuralgiaSegmentation,
-        # Task5PolymicrogyriaClassification,
+        Task1InfarctClassification,
+        # Task1InfarctSegmentation,
+        Task2MeningiomaSegmentation,
+        Task3BrainAgeRegression,
+        Task4TrigeminalNeuralgiaSegmentation,
+        Task5PolymicrogyriaClassification,
     ]
 
     logger.info("=" * 100)

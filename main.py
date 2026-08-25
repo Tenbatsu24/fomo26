@@ -38,6 +38,8 @@ from med_adapt.trainer import (
     SegmentationTrainer,
 )
 
+torch.set_float32_matmul_precision("medium")
+
 logger = get_logger(__name__)
 
 TRAINER_CLASSES = {

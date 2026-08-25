@@ -31,13 +31,8 @@ def load_or_compute_statistics(
     task_name: str,
     statistics_path: Path,
     cases_path: Path,
+    modalities,
 ) -> Dict[str, Any]:
-    """Load cached statistics or compute them from *samples*.
-
-    If both *statistics_path* and *cases_path* already exist the cached
-    versions are returned. Otherwise statistics are computed, written to
-    disk, and returned.
-    """
     if statistics_path.exists() and cases_path.exists():
         logger.info(
             f"{task_name} | loading cached statistics from {statistics_path}",
@@ -47,7 +42,7 @@ def load_or_compute_statistics(
 
     logger.info(f"{task_name} | computing dataset statistics")
 
-    statistics, per_case_rows = compute_statistics(samples)
+    statistics, per_case_rows = compute_statistics(samples, len(modalities), modalities)
 
     with open(statistics_path, "w") as f:
         json.dump(statistics, f, indent=2)

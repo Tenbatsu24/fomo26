@@ -121,6 +121,7 @@ class MedicalTaskDataset(IterableDataset):
             self.TASK_NAME,
             self.statistics_path,
             self.cases_path,
+            self.MODALITIES,
         )
 
         log_statistics(
