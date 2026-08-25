@@ -4,7 +4,7 @@ from typing import Literal, Mapping, Any, Optional
 import torch
 import torch.nn as nn
 
-from med_adapt.adapter import AttentionPooledHead, AttentionPooling
+from med_adapt.adapter import AttentionPooling
 from med_adapt.adapter.channel_adapter import ConvexModalityAdapter
 from med_adapt.models.base import ViT3D
 from med_adapt.registry import register_model
