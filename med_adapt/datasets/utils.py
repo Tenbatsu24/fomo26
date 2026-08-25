@@ -43,7 +43,7 @@ def build_dataloaders(
     )
     test_ds = dataset_class(
         root=root,
-        split="all",
+        split="val",
         transform=test_transforms,
     )
 

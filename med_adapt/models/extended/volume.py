@@ -4,7 +4,7 @@ from typing import Literal, Mapping, Any, Optional
 import torch
 import torch.nn as nn
 
-from med_adapt.adapter import AttentionPooling
+from med_adapt.adapter import AttentionPooledHead, AttentionPooling
 from med_adapt.adapter.channel_adapter import ConvexModalityAdapter
 from med_adapt.models.base import ViT3D
 from med_adapt.registry import register_model
@@ -73,9 +73,15 @@ class ViT3DAdaption(ViT3D):
                 torch.zeros(1, self.num_q_tokens, self.embed_dim)
             )
             nn.init.normal_(self.query_tokens, std=1e-6)
-            self.attn_pool = AttentionPooling(self.embed_dim, num_heads=4)
             self.query_norm = nn.LayerNorm(self.embed_dim, eps=1e-6)
-            self.head = nn.Linear(self.embed_dim, self.classes, bias=True)
+            self.attn_head = nn.Sequential(
+                AttentionPooling(
+                    self.embed_dim, num_classes=1, num_heads=4, dropout=0.1
+                ),
+                nn.Linear(self.embed_dim, classes),
+            )
+            if task == "regression":
+                nn.init.constant_(self.attn_head[-1].bias, 50.0)
         elif task == "segmentation":
             self.num_q_tokens = 0
             self.query_tokens = None
@@ -118,9 +124,8 @@ class ViT3DAdaption(ViT3D):
                     query_latent = self.query_norm(
                         x[:, : self.num_q_tokens, :]
                     )  # [B, q, d]
-                    pooled_queries = self.attn_pool(query_latent)[:, 0, :]
-                    logits = self.head(pooled_queries)
-                    preds.append(logits)
+                    res = self.attn_head(query_latent).squeeze(1)
+                    preds.append(res)
         return preds
 
     def load_state_dict(
@@ -131,7 +136,7 @@ class ViT3DAdaption(ViT3D):
         return super().load_state_dict(state_dict, strict=strict, assign=assign)
 
     def additional_trainable(self):
-        return ["attn_pool", "query_tokens", "query_norm", "head", "channel_adapter"]
+        return ["attn_head", "query_tokens", "query_norm", "head", "channel_adapter"]
 
 
 @register_model("vitv2_a_3d_tiny")
@@ -256,8 +261,8 @@ def vitv2_a_3d_large(
 
 if __name__ == "__main__":
     _m = vitv2_a_3d_small(
-        modalities=1,
-        task="none",
+        n_modalities=1,
+        task="regression",
         classes=2,
         lora=False,
         mea=True,

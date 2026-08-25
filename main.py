@@ -255,7 +255,7 @@ def main():
         filename=f"step={{step}}-val_{metric}={{val/{metric}:.3f}}",
         monitor=f"val/{metric}",
         auto_insert_metric_name=False,
-        save_top_k=1,
+        save_top_k=5,
         mode="max" if task in ["classification", "segmentation"] else "min",
         save_last=False,
         enable_version_counter=False,

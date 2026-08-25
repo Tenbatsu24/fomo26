@@ -28,12 +28,14 @@ class AttentionPooling(nn.Module):
     def __init__(
         self,
         dim: int,
+        num_classes: int = 1,
         num_heads: int = 1,
         qkv_bias: bool = True,
         dropout: float = 0.0,
     ):
         super().__init__()
         assert dim % num_heads == 0, "dim must be divisible by num_heads"
+        self.classes = num_classes
 
         self.dim = dim
         self.num_heads = num_heads
@@ -41,7 +43,7 @@ class AttentionPooling(nn.Module):
         self.scale = self.head_dim**-0.5
         self.dropout = dropout
 
-        self.query = nn.Parameter(torch.zeros(1, 1, dim))
+        self.query = nn.Parameter(torch.zeros(1, self.classes, dim))
         nn.init.trunc_normal_(self.query, std=0.02)
 
         self.q_proj = nn.Linear(dim, dim, bias=qkv_bias)
@@ -80,18 +82,18 @@ class AttentionPooling(nn.Module):
     def _attn_xformers(self, q, k, v):
         B = q.shape[0]
         # xformers expects (B, N, H, hd)
-        q = q.reshape(B, 1, self.num_heads, self.head_dim)
+        q = q.reshape(B, self.classes, self.num_heads, self.head_dim)
         k = k.reshape(B, -1, self.num_heads, self.head_dim)
         v = v.reshape(B, -1, self.num_heads, self.head_dim)
 
         out = memory_efficient_attention(
             q, k, v, attn_bias=None, p=self.dropout if self.training else 0.0
         )  # (B, 1, H, hd)
-        return out.reshape(B, 1, self.dim)
+        return out.reshape(B, self.classes, self.dim)
 
     def _attn_manual(self, q, k, v):
         B, N = q.shape[0], k.shape[1]
-        q = q.reshape(B, 1, self.num_heads, self.head_dim).transpose(
+        q = q.reshape(B, self.classes, self.num_heads, self.head_dim).transpose(
             1, 2
         )  # (B, H, 1, hd)
         k = k.reshape(B, N, self.num_heads, self.head_dim).transpose(
@@ -106,11 +108,11 @@ class AttentionPooling(nn.Module):
         attn = self.attn_drop(attn)
 
         out = attn @ v  # (B, H, 1, hd)
-        return out.transpose(1, 2).reshape(B, 1, self.dim)
+        return out.transpose(1, 2).reshape(B, self.classes, self.dim)
 
 
 if __name__ == "__main__":
-    pool = AttentionPooling(dim=768, num_heads=1)
+    pool = AttentionPooling(dim=768, num_classes=2, num_heads=8)
     tokens = torch.randn(4, 196, 768)  # B=4, N=196 patches, D=768
     pooled = pool(tokens)  # (4, 768)
 

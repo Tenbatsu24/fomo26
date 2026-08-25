@@ -6,7 +6,7 @@
     "query_from": -3
   },
   "pretrained": {
-    "checkpoint": "small/296_518.ckpt"
+    "checkpoint": "small/296_518/last.ckpt"
   },
   "data": {
     "dataset_name": "CLS002_FOMO26_Infarct",
@@ -15,7 +15,7 @@
       320,
       32
     ],
-    "batch_size": 4,
+    "batch_size": 1,
     "num_workers": 2,
     "resample_spacing": null
   },
@@ -31,7 +31,7 @@
   },
   "trainer": {
     "accelerator": "auto",
-    "accumulate_grad_batches": 4,
+    "accumulate_grad_batches": 1,
     "benchmark": false,
     "deterministic": false,
     "devices": "auto",
@@ -39,10 +39,10 @@
     "max_steps": 100,
     "num_nodes": 1,
     "num_sanity_val_steps": 0,
-    "precision": "bf16-mixed",
+    "precision": "32-true",
     "strategy": "auto",
     "sync_batchnorm": false,
-    "val_check_interval": 40,
+    "val_check_interval": 10,
     "check_val_every_n_epoch": null,
     "log_every_n_steps": 1
   },
