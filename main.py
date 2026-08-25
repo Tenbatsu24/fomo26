@@ -17,6 +17,7 @@ from torchvision import transforms
 from lightning.pytorch.loggers import CSVLogger
 from lightning.pytorch.callbacks import ModelCheckpoint, LearningRateMonitor
 
+from med_adapt.augs import PadToShape3D
 from med_adapt.registry import STORE
 from med_adapt.utils.naming import get_run_name
 from med_adapt.datasets import build_dataloaders
@@ -117,12 +118,13 @@ def build_cpu_transforms(crop_size, stage, task, test_time_resize=None):
             tforms.insert(0, RandomSwapSpatialDims3D(label_key=label_key))
     elif stage == "val":
         tforms = [
-            (
-                Resize3D(size=crop_size, label_key=label_key)
-                if task != "segmentation"
-                else CenterCrop3D(size=crop_size, label_key=label_key)
-            ),
-        ]
+            Resize3D(size=crop_size, label_key=label_key)
+        ]  if task != "segmentation" else (
+            [
+                PadToShape3D(size=crop_size, label_key=label_key),
+                CenterCrop3D(size=crop_size, label_key=label_key)
+            ]
+        )
     else:
         tforms = (
             [Resize3D(size=test_time_resize, label_key=label_key)]
