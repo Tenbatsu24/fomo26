@@ -11,10 +11,10 @@
   "data": {
     "dataset_name": "SEG010_FOMO26_TrigeminalNeuralgia",
     "crop_size": [224, 224, 224],
-    "batch_size": 4,
+    "batch_size": 2,
     "num_workers": 2,
     "resample_spacing": "median",
-    "test_time_resize": null
+    "test_time_resize": [224, 224, 224]
   },
   "enable_aug": false,
   "optimizer": {
@@ -28,7 +28,7 @@
   },
   "trainer": {
     "accelerator": "auto",
-    "accumulate_grad_batches": 4,
+    "accumulate_grad_batches": 8,
     "benchmark": false,
     "deterministic": false,
     "devices": "auto",
@@ -39,14 +39,14 @@
     "precision": "bf16-mixed",
     "strategy": "auto",
     "sync_batchnorm": false,
-    "val_check_interval": 40,
+    "val_check_interval": 80,
     "check_val_every_n_epoch": null,
     "log_every_n_steps": 1
   },
   "scheduler": [
     [
       "lr",
-      "CatSched(LinSched(1e-8, 2e-3), CosSched(2e-3, 1e-9), 0.05)"
+      "CatSched(LinSched(1e-8, 2e-3), CosSched(2e-3, 1e-9), 0.25)"
     ],
     [
       "weight_decay",
@@ -57,6 +57,6 @@
   "metrics": null,
   "seed": 42,
   "test": {
-    "sliding_window": true
+    "sliding_window": false
   }
 }
