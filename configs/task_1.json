@@ -10,16 +10,13 @@
   },
   "data": {
     "dataset_name": "CLS002_FOMO26_Infarct",
-    "crop_size": [
-      320,
-      320,
-      32
-    ],
+    "crop_size": "median",
     "batch_size": 4,
     "num_workers": 2,
-    "resample_spacing": null
+    "resample_spacing": "median",
+    "test_time_resize": "median"
   },
-  "enable_aug": true,
+  "enable_aug": false,
   "optimizer": {
     "type": "AdamW",
     "params": {

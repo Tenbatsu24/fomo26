@@ -20,6 +20,7 @@ def build_dataloaders(
     test_transforms=None,
     n_splits: int = 5,
     val_drop_last: bool = False,
+    resample_spacing="median",
 ) -> tuple[DataLoader, DataLoader, DataLoader]:
 
     if num_val_workers is None:
@@ -32,6 +33,7 @@ def build_dataloaders(
         seed=seed,
         n_splits=n_splits,
         transform=train_transforms,
+        resample_spacing=resample_spacing,
     )
     val_ds = dataset_class(
         root=root,
@@ -40,11 +42,13 @@ def build_dataloaders(
         seed=seed,
         n_splits=n_splits,
         transform=val_transforms,
+        resample_spacing=resample_spacing,
     )
     test_ds = dataset_class(
         root=root,
         split="val",
         transform=test_transforms,
+        resample_spacing=resample_spacing,
     )
 
     train_dl = DataLoader(

@@ -9,6 +9,7 @@ import argparse
 
 from pathlib import Path
 
+import numpy as np
 import torch
 import lightning as pl
 
@@ -26,10 +27,12 @@ from med_adapt.augs.default import (
     default_disable_aug,
 )
 from med_adapt.augs.custom import (
-    RandomResizedCrop3D,
-    RandomSwapSpatialDims3D,
-    RandomFlipSpatialDims3D,
     Resize3D,
+    RandomSwapSpatialDims3D,
+    RandomResizedCrop3D,
+    RandomFlipSpatialDims3D,
+    CenterCrop3D,
+    ClassAwareRandomResizedCrop3D,
 )
 from med_adapt.trainer import (
     ClassificationTrainer,
@@ -46,6 +49,11 @@ TRAINER_CLASSES = {
     "regression": RegressionTrainer,
     "segmentation": SegmentationTrainer,
 }
+
+
+def round_up_to_multiple(values, multiple: int = 8):
+    """Round each element of a tuple up to the nearest multiple (ceiling)."""
+    return tuple(int(np.ceil(v / multiple) * multiple) for v in values)
 
 
 # code injection
@@ -91,20 +99,37 @@ def get_task_from_dataset_name(dataset_name: str) -> str:
         raise ValueError(f"Cannot infer task from dataset name: {dataset_name}")
 
 
-def build_cpu_transforms(crop_size, training, task):
+def build_cpu_transforms(crop_size, stage, task, test_time_resize=None):
     """Build CPU-side crop/pad/resize transforms."""
     label_key = "label" if task == "segmentation" else None
-    if training:
+    if stage == "train":
         tforms = [
-            RandomSwapSpatialDims3D(label_key=label_key),
             RandomFlipSpatialDims3D(label_key=label_key),
-            RandomResizedCrop3D(size=crop_size, label_key=label_key, scale=(0.7, 1.0)),
+            (
+                RandomResizedCrop3D(
+                    size=crop_size, label_key=label_key, scale=(0.7, 1.0)
+                )
+                if task != "segmentation"
+                else ClassAwareRandomResizedCrop3D(size=crop_size)
+            ),
+        ]
+        if task == "regression":
+            tforms.insert(0, RandomSwapSpatialDims3D(label_key=label_key))
+    elif stage == "val":
+        tforms = [
+            (
+                Resize3D(size=crop_size, label_key=label_key)
+                if task != "segmentation"
+                else CenterCrop3D(size=crop_size, label_key=label_key)
+            ),
         ]
     else:
-        tforms = [
-            Resize3D(size=crop_size, label_key=label_key),
-        ]
-    return transforms.Compose(tforms) if tforms else None
+        tforms = (
+            [Resize3D(size=test_time_resize, label_key=label_key)]
+            if test_time_resize is not None
+            else []
+        )
+    return transforms.Compose(tforms)
 
 
 def build_model(config, task, n_modalities, n_classes, lora, mea):
@@ -193,21 +218,45 @@ def main():
     data_root = str(get_data_path())
     fold = args.fold
     seed = config.seed
-    crop_size = tuple(config.data.crop_size)
+
+    crop_size = config.data.crop_size
+    test_time_resize = config.data.test_time_resize
+
+    if isinstance(crop_size, str) and crop_size == "median":
+        crop_size = round_up_to_multiple(dataset_class.median_resolution(), multiple=8)
+    else:
+        crop_size = tuple(crop_size) if crop_size is not None else None
+    logger.info(f"Using {crop_size=}")
+
+    if isinstance(test_time_resize, str) and test_time_resize == "median":
+        test_time_resize = round_up_to_multiple(
+            dataset_class.median_resolution(), multiple=8
+        )
+    else:
+        test_time_resize = (
+            tuple(test_time_resize) if test_time_resize is not None else None
+        )
+    logger.info(f"Using {test_time_resize=}")
+
+    config.data.crop_size = crop_size
+    config.data.test_time_resize = test_time_resize
 
     train_cpu_transforms = build_cpu_transforms(
         crop_size,
-        training=True,
+        stage="train",
         task=task,
     )
     val_cpu_transforms = build_cpu_transforms(
         crop_size,
-        training=False,
+        stage="val",
         task=task,
+    )
+    test_cpu_transforms = build_cpu_transforms(
+        crop_size, stage="test", task=task, test_time_resize=test_time_resize
     )
 
     model = build_model(config, task, n_modalities, n_classes, config.model.lora, True)
-    train_dl, val_dl, _ = build_dataloaders(
+    train_dl, val_dl, test_dl = build_dataloaders(
         dataset_class=dataset_class,
         root=data_root,
         fold=fold,
@@ -216,7 +265,9 @@ def main():
         num_workers=config.data.num_workers,
         train_transforms=train_cpu_transforms,
         val_transforms=val_cpu_transforms,
+        test_transforms=test_cpu_transforms,
         val_drop_last=False,
+        resample_spacing=config.data.resample_spacing,
     )
 
     if config.enable_aug:
@@ -253,7 +304,7 @@ def main():
         filename=f"step={{step}}-val_{metric}={{val/{metric}:.3f}}",
         monitor=f"val/{metric}",
         auto_insert_metric_name=False,
-        save_top_k=5,
+        save_top_k=3,
         mode="max" if task in ["classification", "segmentation"] else "min",
         save_last=False,
         enable_version_counter=False,
@@ -297,8 +348,8 @@ def main():
     logger.info("\n[main] Running test evaluation on fold {fold}...", fold=fold)
     pl_trainer.test(
         trainer,
-        dataloaders=val_dl,
-        ckpt_path=loss_callback.best_model_path,
+        dataloaders=test_dl,
+        ckpt_path=metric_callback.best_model_path,
         weights_only=True,
     )
 

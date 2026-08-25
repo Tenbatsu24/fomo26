@@ -75,9 +75,7 @@ class ViT3DAdaption(ViT3D):
             nn.init.normal_(self.query_tokens, std=1e-6)
             self.query_norm = nn.LayerNorm(self.embed_dim, eps=1e-6)
             self.attn_head = nn.Sequential(
-                AttentionPooling(
-                    self.embed_dim, num_classes=1, num_heads=4, dropout=0.1
-                ),
+                AttentionPooling(self.embed_dim, num_classes=1, num_heads=4),
                 nn.Linear(self.embed_dim, classes),
             )
             if task == "regression":

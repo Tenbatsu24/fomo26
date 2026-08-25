@@ -46,7 +46,6 @@ class TemplateTrainer(pl.LightningModule):
         config: ConfigDict,
         model: torch.nn.Module,
         gpu_augmentations=default_disable_aug,
-        normalisation: torch.nn.Module | None = None,
     ):
         super().__init__()
 
@@ -60,7 +59,6 @@ class TemplateTrainer(pl.LightningModule):
 
         self.config = config
         self.gpu_aug = gpu_augmentations
-        self.normalisation = normalisation
         self.criterion = self.make_criterion()
         self.num_classes: int = self.config.num_classes
 
@@ -178,8 +176,6 @@ class TemplateTrainer(pl.LightningModule):
     def preprocess_batch(self, batch, train: bool) -> tuple[Any, Any]:
         if train and self.gpu_aug is not None:
             batch = self.gpu_aug(batch)
-        if self.normalisation is not None:
-            batch = self.normalisation(batch)
 
         image, label = batch["image"], batch["label"]
         return image, label

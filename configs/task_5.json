@@ -6,14 +6,15 @@
     "query_from": -3
   },
   "pretrained": {
-    "checkpoint": "small/296_518/last.ckpt"
+    "checkpoint": "small/296_518.ckpt"
   },
   "data": {
-    "dataset_name": "SEG002_FOMO26_Infarct",
-    "crop_size": [128, 128, 128],
-    "batch_size": 1,
+    "dataset_name": "CLS003_FOMO26_Polymicrogyria",
+    "crop_size": [256, 192, 256],
+    "batch_size": 4,
     "num_workers": 2,
-    "resample_spacing": "median"
+    "resample_spacing": "median",
+    "test_time_resize": [256, 192, 256]
   },
   "enable_aug": false,
   "optimizer": {
@@ -27,7 +28,7 @@
   },
   "trainer": {
     "accelerator": "auto",
-    "accumulate_grad_batches": 1,
+    "accumulate_grad_batches": 4,
     "benchmark": false,
     "deterministic": false,
     "devices": "auto",
@@ -35,10 +36,10 @@
     "max_steps": 100,
     "num_nodes": 1,
     "num_sanity_val_steps": 0,
-    "precision": "32-true",
+    "precision": "bf16-mixed",
     "strategy": "auto",
     "sync_batchnorm": false,
-    "val_check_interval": 10,
+    "val_check_interval": 40,
     "check_val_every_n_epoch": null,
     "log_every_n_steps": 1
   },

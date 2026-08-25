@@ -1,3 +1,4 @@
+import math
 import random
 
 import torch
@@ -225,6 +226,138 @@ class RandomResizedCrop3D:
                     label,
                     params,
                 )
+
+        return out
+
+
+class ClassAwareRandomResizedCrop3D(RandomResizedCrop3D):
+
+    def __init__(
+        self,
+        size,
+        scale=(0.5, 1.0),
+        ratio=(0.9, 1.1),
+        overlap=(0.5, 1.0),
+        label_key: str = "label",
+    ):
+        if label_key is None:
+            raise ValueError("ClassAwareRandomResizedCrop3D requires a label_key.")
+
+        super().__init__(size=size, scale=scale, ratio=ratio, label_key=label_key)
+        self.overlap = overlap
+
+    def _class_bbox(self, label: torch.Tensor, H: int, W: int, D: int):
+        """Pick one foreground class present in label and return its
+        per-axis (min, max) voxel index, inclusive. None if no foreground."""
+        spatial = label.reshape(-1, H, W, D)[0]
+
+        classes, counts = torch.unique(spatial, return_counts=True)
+        fg = classes != 0
+        classes = classes[fg]
+        counts = counts[fg]
+
+        if classes.numel() == 0:
+            return None
+
+        if random.random() < 0.5:
+            # Weight by inverse voxel count so smaller/rarer structures
+            # are favored more often than their raw frequency would give.
+            weights = (1.0 / counts.float()).tolist()
+            idx = random.choices(range(classes.numel()), weights=weights, k=1)[0]
+        else:
+            idx = random.randrange(classes.numel())
+
+        chosen_class = classes[idx]
+        mask = spatial == chosen_class
+
+        coords_h = torch.any(torch.any(mask, dim=2), dim=1).nonzero(as_tuple=True)[0]
+        coords_w = torch.any(torch.any(mask, dim=2), dim=0).nonzero(as_tuple=True)[0]
+        coords_d = torch.any(torch.any(mask, dim=1), dim=0).nonzero(as_tuple=True)[0]
+
+        return (
+            (int(coords_h.min()), int(coords_h.max())),
+            (int(coords_w.min()), int(coords_w.max())),
+            (int(coords_d.min()), int(coords_d.max())),
+        )
+
+    @staticmethod
+    def _axis_range(
+        bmin: int, bmax: int, crop_size: int, dim_size: int, overlap: float
+    ):
+        bbox_extent = bmax - bmin + 1
+
+        required = min(crop_size, bbox_extent, math.ceil(overlap * bbox_extent))
+        required = max(required, 1)
+
+        low = max(0, bmin + required - crop_size)
+        high = min(dim_size - crop_size, bmax + 1 - required)
+
+        if low > high:
+            # Degenerate rounding edge case: clamp to the nearest valid start.
+            low = high = max(0, min(bmin, dim_size - crop_size))
+
+        return low, high
+
+    def _sample_crop(self, H, W, D, label=None):
+        if label is None:
+            return super()._sample_crop(H, W, D)
+
+        bbox = self._class_bbox(label, H, W, D)
+
+        if bbox is None:
+            return super()._sample_crop(H, W, D)
+
+        volume = H * W * D
+        (h_min, h_max), (w_min, w_max), (d_min, d_max) = bbox
+
+        for _ in range(10):
+            target_volume = random.uniform(*self.scale) * volume
+
+            r_hw = random.uniform(*self.ratio)
+            r_hd = random.uniform(*self.ratio)
+
+            h = round((target_volume * r_hw * r_hd) ** (1.0 / 3.0))
+            w = round(h / r_hw)
+            d = round(h / r_hd)
+
+            if 0 < h <= H and 0 < w <= W and 0 < d <= D:
+                overlap = random.uniform(*self.overlap)
+
+                top_low, top_high = self._axis_range(h_min, h_max, h, H, overlap)
+                left_low, left_high = self._axis_range(w_min, w_max, w, W, overlap)
+                depth_low, depth_high = self._axis_range(d_min, d_max, d, D, overlap)
+
+                top = random.randint(top_low, top_high)
+                left = random.randint(left_low, left_high)
+                depth = random.randint(depth_low, depth_high)
+
+                return top, left, depth, h, w, d
+
+        # Fallback: use the whole volume
+        return 0, 0, 0, H, W, D
+
+    def __call__(self, sample):
+        if self.label_key not in sample:
+            raise KeyError(
+                f"ClassAwareRandomResizedCrop3D requires '{self.label_key}' in the sample."
+            )
+
+        image = sample["image"]
+        label = sample[self.label_key]
+
+        H, W, D = image.shape[-3:]
+
+        if not (isinstance(label, torch.Tensor) and label.shape[-3:] == (H, W, D)):
+            raise ValueError(
+                "ClassAwareRandomResizedCrop3D requires the label to be a "
+                "tensor with the same spatial dimensions as the image."
+            )
+
+        params = self._sample_crop(H, W, D, label=label)
+
+        out = dict(sample)
+        out["image"] = self._crop_resize_image(image, params)
+        out[self.label_key] = self._crop_resize_label_3d(label, params)
 
         return out
 

@@ -1,3 +1,4 @@
+import json
 import random
 
 from pathlib import Path
@@ -26,6 +27,7 @@ from .statistics import (
     log_statistics,
 )
 from .visualisation import create_gallery
+from ..utils import get_data_path
 
 logger = get_logger(__name__)
 
@@ -179,6 +181,17 @@ class MedicalTaskDataset(IterableDataset):
             self.resize_to = tuple(int(round(v)) for v in resolution_median)
         else:
             self.resize_to = resize_to
+
+    @classmethod
+    def median_resolution(cls) -> Tuple[int, ...]:
+        data_root = get_data_path()
+        path_to_stats = data_root / cls.FOLDER_NAME / "dataset_statistics.json"
+        with open(path_to_stats, "r") as f:
+            statistics = json.load(f)
+        resolution_median = np.median(
+            np.asarray(statistics["resolution"]["median"]), axis=0
+        )
+        return tuple(int(round(v)) for v in resolution_median)
 
     def _get_subject_directories(self) -> List[Path]:
         base_dir = self.task_dir / "preprocessed"
@@ -407,9 +420,9 @@ class MedicalTaskDataset(IterableDataset):
             if self.resample_spacing is not None:
                 # Resample mask with nearest-neighbor to preserve label
                 # integrity (nnU-Net convention).
-                target = resample_nifti(target, self.resample_spacing, is_mask=True)
+                target, *_ = resample_nifti(target, self.resample_spacing, is_mask=True)
             else:
-                target, _, _ = load_nifti(target, is_mask=True)
+                target, *_ = load_nifti(target, is_mask=True)
 
             target = ensure_3d(target, sample["label"])
 
