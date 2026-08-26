@@ -182,15 +182,19 @@ def compute_classification_metrics(preds: np.ndarray, targets: np.ndarray) -> di
 
 
 def compute_regression_metrics(preds: np.ndarray, targets: np.ndarray) -> dict:
+    from scipy.stats import pearsonr
     from sklearn.metrics import mean_squared_error, mean_absolute_error, r2_score
 
     preds = preds.reshape(-1)
     targets = targets.reshape(-1)
 
+    correlation, _ = pearsonr(targets, preds)
+
     return {
         "rmse": float(np.sqrt(mean_squared_error(targets, preds))),
         "mae": mean_absolute_error(targets, preds),
         "r2": r2_score(targets, preds),
+        "correlation": correlation,
     }
 
 
