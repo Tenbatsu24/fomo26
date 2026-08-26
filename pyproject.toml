@@ -9,7 +9,7 @@ dependencies = [
 
 [tool.setuptools]
 # Only include specific packages
-packages = ["nnunetv2"]  # Only the med_adapt package
+packages = ["nnunetv2", "med_adapt"]  # Only the med_adapt package
 
 [project.optional-dependencies]
 dev = ["pytest", "ruff"]
