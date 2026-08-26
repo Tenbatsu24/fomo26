@@ -192,7 +192,9 @@ if __name__ == "__main__":
                 seed=args.seed,
                 n_splits=args.n_splits,
             )
-            dataset.convert_to_nnunet_format(idx, "".join(dataset_cls.TASK_NAME.split(" ")))
+            dataset.convert_to_nnunet_format(
+                idx, "".join(dataset_cls.TASK_NAME.split(" "))
+            )
             continue
 
             logger.info(

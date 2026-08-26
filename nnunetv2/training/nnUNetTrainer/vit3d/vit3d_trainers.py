@@ -33,13 +33,13 @@ class AbstractViT3DAdaption(nnUNetTrainer_warmup):
         device: torch.device = torch.device("cuda"),
     ):
         super().__init__(plans, configuration, fold, dataset_json, device)
-        self.initial_lr = 3e-4
+        self.initial_lr = 1e-4
         self.weight_decay = 5e-2
         self.enable_deep_supervision = False
         self.ckpt_path = None
-        self.warmup_duration_whole_net = 5  # lin increase whole network
-        self.num_epochs = 100
-        self.num_iterations_per_epoch = 150
+        self.warmup_duration_whole_net = 15  # lin increase whole network
+        self.num_epochs = 150
+        self.num_iterations_per_epoch = 50
 
     @staticmethod
     @abstractmethod
@@ -60,9 +60,9 @@ class AbstractViT3DAdaption(nnUNetTrainer_warmup):
 
         if self.training_stage is None:
             self._load_pretrained()
-            mark_trainable(
-                self.network, additional_keys=self.network.additional_trainable()
-            )
+            # mark_trainable(
+            #     self.network, additional_keys=self.network.additional_trainable()
+            # )
 
         if self.training_stage == stage:
             return self.optimizer, self.lr_scheduler
@@ -75,7 +75,6 @@ class AbstractViT3DAdaption(nnUNetTrainer_warmup):
 
         if stage == "warmup_all":
             self.print_to_log_file("train whole net, warmup")
-
             optimizer = torch.optim.AdamW(
                 params,
                 self.initial_lr,

@@ -145,10 +145,10 @@ class ViT3DAdaption(ViT3D):
                     f"Repeated {pretrained_in_channels=} to {target_in_channels=}"
                 )
 
-                # We don't want to finetune a heuristically-duplicated stem: freeze it.
-                for p in self.patch_embed.parameters():
-                    p.requires_grad = False
-                logger.warning("Patch Embed no longer allowed to be trained.")
+                # # We don't want to finetune a heuristically-duplicated stem: freeze it.
+                # for p in self.patch_embed.parameters():
+                #     p.requires_grad = False
+                # logger.warning("Patch Embed no longer allowed to be trained.")
 
         return super().load_state_dict(state_dict, strict=strict, assign=assign)
 

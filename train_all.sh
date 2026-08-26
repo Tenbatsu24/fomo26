@@ -1,0 +1,15 @@
+python3 main.py --config configs/task_1.json --fold 0 || true
+# python3 main.py --config configs/task_3.json --fold 0 || true
+python3 main.py --config configs/task_5.json --fold 0 || true
+python3 main.py --config configs/task_1.json --fold 1 || true
+# python3 main.py --config configs/task_3.json --fold 1 || true
+python3 main.py --config configs/task_5.json --fold 1 || true
+python3 main.py --config configs/task_1.json --fold 2 || true
+# python3 main.py --config configs/task_3.json --fold 2 || true
+python3 main.py --config configs/task_5.json --fold 2 || true
+python3 main.py --config configs/task_1.json --fold 3 || true
+# python3 main.py --config configs/task_3.json --fold 3 || true
+python3 main.py --config configs/task_5.json --fold 3 || true
+python3 main.py --config configs/task_1.json --fold 4 || true
+python3 main.py --config configs/task_3.json --fold 4 || true
+python3 main.py --config configs/task_5.json --fold 4 || true

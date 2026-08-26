@@ -296,7 +296,7 @@ def main():
     metric = (
         "auroc"
         if task == "classification"
-        else "dice" if task == "segmentation" else "l2"
+        else "dice" if task == "segmentation" else "corr"
     )
 
     lr_monitor = LearningRateMonitor(logging_interval="step")
