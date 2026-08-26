@@ -21,7 +21,7 @@
     "params": {
       "lr": 0.002,
       "weight_decay": 0.05,
-      "patch_embed_lr_mult": 0.2,
+      "patch_embed_lr_mult": 0.1,
       "layerwise_decay": 0.9
     }
   },
