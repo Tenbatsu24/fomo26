@@ -19,7 +19,11 @@ class RegressionTrainer(TemplateTrainer):
         gpu_augmentations,
     ):
         config["loss"] = {"type": "huber"}
-        config["metrics"] = {"l2": {"type": "rmse"}}
+        config["metrics"] = {
+            "l2": {"type": "rmse"},
+            "r2": {"type": "r2"},
+            "mae": {"type": "mae"},
+        }
         super().__init__(config, model, gpu_augmentations)
 
     def batch_to_loss(self, batch, train=False):
