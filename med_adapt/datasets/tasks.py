@@ -162,12 +162,12 @@ if __name__ == "__main__":
     root = Path("data")
 
     datasets = [
-        Task1InfarctClassification,
-        # Task1InfarctSegmentation,
-        Task2MeningiomaSegmentation,
-        Task3BrainAgeRegression,
-        Task4TrigeminalNeuralgiaSegmentation,
-        Task5PolymicrogyriaClassification,
+        # Task1InfarctClassification,
+        Task1InfarctSegmentation,
+        # Task2MeningiomaSegmentation,
+        # Task3BrainAgeRegression,
+        # Task4TrigeminalNeuralgiaSegmentation,
+        # Task5PolymicrogyriaClassification,
     ]
 
     logger.info("=" * 100)
@@ -175,7 +175,7 @@ if __name__ == "__main__":
     logger.info(f"Root: {root}")
     logger.info("=" * 100)
 
-    for dataset_cls in datasets:
+    for idx, dataset_cls in enumerate(datasets):
 
         logger.info("")
         logger.info("=" * 100)
@@ -192,6 +192,8 @@ if __name__ == "__main__":
                 seed=args.seed,
                 n_splits=args.n_splits,
             )
+            dataset.convert_to_nnunet_format(idx, dataset_cls.TASK_NAME)
+            continue
 
             logger.info(
                 f"Finished inspection of {dataset_cls.TASK_NAME}",

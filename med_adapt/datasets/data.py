@@ -14,7 +14,8 @@ from sklearn.model_selection import KFold, StratifiedKFold
 
 from med_adapt.utils.config import get_logger
 
-from .io import (
+from med_adapt.utils import get_data_path
+from med_adapt.datasets.io import (
     ensure_3d,
     load_nifti,
     normalize_subject_name,
@@ -22,12 +23,11 @@ from .io import (
     resample_nifti,
     resize_volume,
 )
-from .statistics import (
+from med_adapt.datasets.statistics import (
     load_or_compute_statistics,
     log_statistics,
 )
-from .visualisation import create_gallery
-from ..utils import get_data_path
+from med_adapt.datasets.visualisation import create_gallery
 
 logger = get_logger(__name__)
 
@@ -476,3 +476,90 @@ class MedicalTaskDataset(IterableDataset):
             self.gallery_path,
             self.GALLERY_SIZE,
         )
+
+    def convert_to_nnunet_format(
+        self,
+        dataset_id: int,
+        task_name: Optional[str] = None,
+        n_splits: int = 5,
+        seed: int = 1234,
+    ) -> Path:
+        import shutil
+
+        from nnunetv2.paths import nnUNet_raw, nnUNet_preprocessed
+        from batchgenerators.utilities.file_and_folder_operations import (
+            join,
+            maybe_mkdir_p,
+            save_json,
+        )
+        from nnunetv2.dataset_conversion.generate_dataset_json import (
+            generate_dataset_json,
+        )
+
+        if self.TASK_TYPE != "segmentation":
+            raise ValueError(
+                f"convert_to_nnunet_format is only supported for segmentation "
+                f"datasets, got TASK_TYPE={self.TASK_TYPE!r}"
+            )
+        else:
+            logger.info(f"Converting to nnunet format... {self.TASK_NAME}")
+
+        task_name = task_name or self.TASK_NAME
+        dataset_name = f"Dataset{dataset_id:03d}_{task_name}"
+
+        out_dir = Path(str(nnUNet_raw).replace('"', "")) / dataset_name
+        images_tr_dir = out_dir / "imagesTr"
+        labels_tr_dir = out_dir / "labelsTr"
+        images_ts_dir = out_dir / "imagesTs"
+
+        for d in (images_tr_dir, labels_tr_dir, images_ts_dir):
+            d.mkdir(parents=True, exist_ok=True)
+
+        for sample in self.samples:
+            subject = sample["subject"]
+
+            for modality_index, image_path in enumerate(sample["image_paths"]):
+                shutil.copy(
+                    image_path,
+                    images_tr_dir / f"{subject}_{modality_index:04d}.nii.gz",
+                )
+
+            shutil.copy(sample["label"], labels_tr_dir / f"{subject}.nii.gz")
+
+        channel_names = {i: modality for i, modality in enumerate(self.MODALITIES)}
+
+        labels = {"background": 0}
+        for class_index in range(1, self.NUM_CLASSES):
+            labels[f"class_{class_index}"] = class_index
+
+        generate_dataset_json(
+            str(out_dir),
+            channel_names=channel_names,
+            labels=labels,
+            file_ending=".nii.gz",
+            num_training_cases=len(self.samples),
+        )
+
+        subjects = np.array([sample["subject"] for sample in self.samples])
+        indices = np.arange(len(subjects))
+
+        splitter = KFold(n_splits=n_splits, shuffle=True, random_state=seed)
+        fold_indices = list(splitter.split(indices))
+
+        splits = [
+            {
+                "train": subjects[train_idx].tolist(),
+                "val": subjects[val_idx].tolist(),
+            }
+            for train_idx, val_idx in fold_indices
+        ]
+
+        preprocessed_dir = (
+            Path(str(nnUNet_preprocessed).replace('"', "")) / dataset_name
+        )
+        maybe_mkdir_p(str(preprocessed_dir))
+        save_json(
+            splits, join(str(preprocessed_dir), "splits_final.json"), sort_keys=False
+        )
+
+        return out_dir

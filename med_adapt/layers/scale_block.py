@@ -167,24 +167,38 @@ class ScaleDecode(nn.Module):
         return x
 
 
+# If you want to handle multiple patch sizes and compare:
 if __name__ == "__main__":
+    import thop
 
-    x = torch.randn(1, 384, 4, 4, 4)
+    x = torch.randn(1, 384, 37, 37, 37)
+    patch_sizes = [
+        (8, 8, 8),
+    ]  # Add more for comparison
 
-    for patch_size in [
-        (16, 16, 16),
-        (14, 14, 2),
-        (32, 32, 4),
-        (7, 7, 1),
-    ]:
-
-        print(build_stride_schedule(patch_size))
+    results = []
+    for patch_size in patch_sizes:
         decoder = ScaleDecode(
             patch_size=patch_size,
             embed_dim=384,
             out_channels=1,
         )
+        decoder.eval()
+
+        flops, params = thop.profile(decoder, inputs=(x,), verbose=False)
+        flops_f, params_f = thop.clever_format([flops, params], "%.3f")
+
+        results.append(
+            {
+                "patch_size": patch_size,
+                "params": params,
+                "params_f": params_f,
+                "flops": flops,
+                "flops_f": flops_f,
+            }
+        )
 
         y = decoder(x)
-
-        print(f"{patch_size} -> {tuple(y.shape)}")
+        print(
+            f"Patch {patch_size}: Params={params_f}, FLOPs={flops_f}, Output={tuple(y.shape)}"
+        )

@@ -34,8 +34,8 @@ def preprocess_volume(volume: torch.Tensor) -> torch.Tensor:
     else:
         raise ValueError(f"Expected 1 or 3 input channels, got {C}")
 
-    ch_min = vol.amin(dim=(0, 1, 2, 3), keepdim=True)
-    ch_max = vol.amax(dim=(0, 1, 2, 3), keepdim=True)
+    ch_min = vol.amin(dim=(0, 1, 2), keepdim=True)
+    ch_max = vol.amax(dim=(0, 1, 2), keepdim=True)
 
     denom = ch_max - ch_min
     denom = torch.where(denom == 0, 1.0, denom)
@@ -53,14 +53,9 @@ def preprocess_volume(volume: torch.Tensor) -> torch.Tensor:
 
 def load_model(checkpoint_path: Path | str) -> torch.nn.Module:
     """Build and load the 2-D ViT-S encoder from the checkpoint."""
-    from med_adapt.models.base.vit2d import vitv2_small, vitv2_base
+    from med_adapt.models.base.vit2d import vitv2_small
 
-    if "base" in str(checkpoint_path):
-        model_cls = vitv2_base
-    else:
-        model_cls = vitv2_small
-
-    model = model_cls(img_size=518, patch_size=14)
+    model = vitv2_small(img_size=518, patch_size=14)
     ckpt = torch.load(checkpoint_path, map_location="cpu")
     filtered = {k: v for k, v in ckpt.items() if not k.startswith("projection_head")}
     model.load_state_dict(filtered, strict=False)
@@ -180,15 +175,15 @@ def plot_volume_pca(
     pca_images: list[np.ndarray] = []
     cosine_images: list[np.ndarray] = []
 
+    pca = PCA(n_components=3, whiten=whiten)
+    slice_projs = pca.fit_transform(flat.cpu().numpy())  # [N_total, 3]
+    print(
+        f"PCA fitted on {slice_projs.shape[0]} patches, explained variance: {pca.explained_variance_ratio_}"
+    )
     for slice_idx, d in enumerate(slice_indices):
         start = slice_idx * h_p * w_p
         end = start + h_p * w_p
-
-        pca = PCA(n_components=3, whiten=whiten)
-        slice_proj = pca.fit_transform(flat[start:end].cpu().numpy())  # [N_total, 3]
-        print(
-            f"PCA fitted on {slice_proj.shape[0]} patches, explained variance: {pca.explained_variance_ratio_}"
-        )
+        slice_proj = slice_projs[start:end]
 
         # Min-max scale each component to [0, 1]
         pca_images.append(sigmoid(2 * slice_proj.reshape(h_p, w_p, 3)))
