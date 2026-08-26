@@ -153,7 +153,10 @@ class ViT3DAdaption(ViT3D):
         return super().load_state_dict(state_dict, strict=strict, assign=assign)
 
     def additional_trainable(self):
-        return ["attn_head", "query_tokens", "query_norm", "head"]
+        default_ = ["attn_head", "query_tokens", "query_norm", "head"]
+        if self.n_modalities > 1:
+            default_ += ["patch_embed"]
+        return default_
 
 
 @register_model("vitv2_a_3d_tiny")

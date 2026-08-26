@@ -33,7 +33,7 @@ class AbstractViT3DAdaption(nnUNetTrainer_warmup):
         device: torch.device = torch.device("cuda"),
     ):
         super().__init__(plans, configuration, fold, dataset_json, device)
-        self.initial_lr = 1e-4
+        self.initial_lr = 2e-3
         self.weight_decay = 5e-2
         self.enable_deep_supervision = False
         self.ckpt_path = None
@@ -60,18 +60,44 @@ class AbstractViT3DAdaption(nnUNetTrainer_warmup):
 
         if self.training_stage is None:
             self._load_pretrained()
-            # mark_trainable(
-            #     self.network, additional_keys=self.network.additional_trainable()
-            # )
+
+        mark_trainable(
+            self.network,
+            additional_keys=self.network.additional_trainable(),
+        )
 
         if self.training_stage == stage:
             return self.optimizer, self.lr_scheduler
 
         # Get parameters that require gradients
         if isinstance(self.network, DDP):
-            params = [p for p in self.network.module.parameters() if p.requires_grad]
+            model = self.network.module
         else:
-            params = [p for p in self.network.parameters() if p.requires_grad]
+            model = self.network
+
+        patch_embed_params = []
+        other_params = []
+
+        for name, p in model.named_parameters():
+            if not p.requires_grad:
+                continue
+            if name.startswith("patch_embed"):
+                patch_embed_params.append(p)
+                print(f"{name:60s} {tuple(p.shape)!s:20s} lr={self.initial_lr * 0.1}")
+            else:
+                other_params.append(p)
+                print(f"{name:60s} {tuple(p.shape)!s:20s} lr={self.initial_lr}")
+
+        params = [
+            {
+                "params": other_params,
+                "lr": self.initial_lr,
+            },
+            {
+                "params": patch_embed_params,
+                "lr": self.initial_lr * 0.1,
+            },
+        ]
 
         if stage == "warmup_all":
             self.print_to_log_file("train whole net, warmup")
