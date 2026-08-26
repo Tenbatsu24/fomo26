@@ -41,7 +41,8 @@
     "sync_batchnorm": false,
     "val_check_interval": 100,
     "check_val_every_n_epoch": null,
-    "log_every_n_steps": 1
+    "log_every_n_steps": 1,
+    "limit_val_batches": 20
   },
   "scheduler": [
     [

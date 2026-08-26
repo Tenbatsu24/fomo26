@@ -68,14 +68,14 @@ class ViT3DAdaption(ViT3D):
             self.channel_adapter = nn.Identity()
 
         if task in ["classification", "regression"]:
-            self.num_q_tokens = num_q_tokens if num_q_tokens is not None else 32
+            self.num_q_tokens = num_q_tokens if num_q_tokens is not None else 4
             self.query_tokens = nn.Parameter(
                 torch.zeros(1, self.num_q_tokens, self.embed_dim)
             )
             nn.init.normal_(self.query_tokens, std=1e-6)
             self.query_norm = nn.LayerNorm(self.embed_dim, eps=1e-6)
             self.attn_head = nn.Sequential(
-                AttentionPooling(self.embed_dim, num_classes=1, num_heads=4),
+                AttentionPooling(self.embed_dim, num_classes=1, num_heads=1),
                 nn.Linear(self.embed_dim, classes),
             )
             if task == "regression":

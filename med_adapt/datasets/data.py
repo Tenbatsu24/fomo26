@@ -380,12 +380,18 @@ class MedicalTaskDataset(IterableDataset):
 
         rng = random.Random(self.seed)
 
-        while True:
-            indices = list(range(len(self)))
-
-            if self.split == "train":
+        if self.split == "train":
+            # Training: infinite loop with shuffling each epoch
+            while True:
+                indices = list(range(len(self)))
                 rng.shuffle(indices)
-
+                for idx in indices[global_worker_id::global_workers]:
+                    yield self[idx]
+        else:
+            # Validation/Test: single epoch without shuffling
+            indices = list(range(len(self)))
+            # Optionally, you could shuffle validation set too, but usually not needed
+            # if self.split == "val" and self.shuffle_val: rng.shuffle(indices)
             for idx in indices[global_worker_id::global_workers]:
                 yield self[idx]
 
