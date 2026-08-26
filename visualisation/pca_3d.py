@@ -20,28 +20,6 @@ DEFAULT_OUTPUT_DIR = Path(__file__).resolve().parents[1] / "understand" / "pca_3
 DEFAULT_DATASET = "CLS002_FOMO26_Infarct"
 
 
-# ---------------------------------------------------------------------------
-# Preprocessing
-# ---------------------------------------------------------------------------
-
-
-def _preprocess_volume_channels(volume: torch.Tensor) -> torch.Tensor:
-    DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
-    volume = volume.to(DEVICE).float()
-    C, H, W, D = volume.shape
-    if C == 3:
-        return volume
-    elif C == 1:
-        return volume.expand(3, H, W, D)
-    else:
-        raise ValueError(f"Expected 1 or 3 input channels, got {C}")
-
-
-# ---------------------------------------------------------------------------
-# Model loading
-# ---------------------------------------------------------------------------
-
-
 def load_model(
     checkpoint_path: Path | str,
     volume_size: tuple[int, int, int] = (224, 224, 128),
@@ -125,6 +103,8 @@ def _model_forward_all_channels(
 
     if out["recon"] is not None:
         recon = out["recon"].transpose(0, 1)  # [1, 3, H, W, D]
+    else:
+        recon = None
 
     return cls_token, patch_tokens, recon
 
@@ -177,14 +157,12 @@ def plot_volume_pca_3d(
         transform=trnsfrms,
     )
     sample = dataset[sample_index]
-    volume = sample["image"]
+    vol = sample["image"][1:2, ...]
     print(
-        f"Volume shape: {volume.shape}, label: {sample['label'].item()}, "
+        f"Volume shape: {vol.shape}, label: {sample['label'].item()}, "
         f"subject: {sample['subject']}"
     )
-
-    vol = _preprocess_volume_channels(volume)
-    print(f"Preprocessed volume: {vol.shape}")
+    vol = vol.to("cuda" if torch.cuda.is_available() else "cpu")
 
     if model_volume_size is None:
         model_volume_size = crop_size
@@ -198,7 +176,7 @@ def plot_volume_pca_3d(
     print(f"Model loaded, patch_size={model.patch_size}")
 
     # Run once per channel and average representations; keep per-channel recons.
-    if med_in_channels == dataset_cls.NUM_MODALITIES:
+    if med_in_channels == vol.shape[0]:
         cls_token, patch_tokens, recon = _model_forward_all_channels(model, vol)
     elif med_in_channels == 1:
         cls_token, patch_tokens, recon = _model_forward_avg_channels(model, vol)

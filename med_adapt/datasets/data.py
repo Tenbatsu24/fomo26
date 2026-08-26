@@ -38,7 +38,7 @@ def set_seed(seed: int) -> None:
     torch.manual_seed(seed)
 
 
-_AGE_BUCKET_EDGES: Tuple[int, ...] = (20, 30, 40, 50, 60, 70, 80, 90)
+_AGE_BUCKET_EDGES: Tuple[int, ...] = (40, 60, 80)
 
 
 def _classification_labels(samples: List[Dict[str, Any]]) -> np.ndarray:

@@ -2,18 +2,18 @@
   "model": {
     "variant": "3d",
     "size": "small",
-    "lora": false,
-    "query_from": -3
+    "lora": false
   },
   "pretrained": {
     "checkpoint": "small/296_518/last.ckpt"
   },
   "data": {
-    "dataset_name": "SEG002_FOMO26_Infarct",
+    "dataset_name": "CLS002_FOMO26_Infarct",
     "crop_size": [128, 128, 128],
     "batch_size": 1,
     "num_workers": 2,
-    "resample_spacing": "median"
+    "resample_spacing": "median",
+    "test_time_resize": "median"
   },
   "enable_aug": false,
   "optimizer": {

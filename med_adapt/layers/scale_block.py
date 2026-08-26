@@ -43,11 +43,6 @@ def build_stride_schedule(patch_size):
 
 
 class ScaleBlock(nn.Module):
-    """
-    Upsample + local refinement.
-
-    ConvTranspose -> DepthwiseConv -> Norm -> GELU
-    """
 
     def __init__(
         self,
@@ -171,7 +166,7 @@ class ScaleDecode(nn.Module):
 if __name__ == "__main__":
     import thop
 
-    x = torch.randn(1, 384, 37, 37, 37)
+    x = torch.randn(1, 384, 37, 37, 37, device="cuda")
     patch_sizes = [
         (8, 8, 8),
     ]  # Add more for comparison
@@ -183,6 +178,8 @@ if __name__ == "__main__":
             embed_dim=384,
             out_channels=1,
         )
+        print(decoder)
+        decoder.to("cuda")
         decoder.eval()
 
         flops, params = thop.profile(decoder, inputs=(x,), verbose=False)

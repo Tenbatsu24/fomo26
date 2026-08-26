@@ -2,8 +2,7 @@
   "model": {
     "variant": "3d",
     "size": "small",
-    "lora": false,
-    "query_from": -1
+    "lora": false
   },
   "pretrained": {
     "checkpoint": "small/296_518.ckpt"
