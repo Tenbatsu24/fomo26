@@ -8,6 +8,9 @@ from sklearn.metrics import (
     mean_squared_error,
     mean_absolute_error,
     r2_score,
+    recall_score,
+    precision_score,
+    f1_score
 )
 from scipy.stats import pearsonr
 
@@ -29,6 +32,25 @@ class SklearnMetricWrapper(Metric):
 
         self.add_state("preds", default=[], dist_reduce_fx="cat")
         self.add_state("targets", default=[], dist_reduce_fx="cat")
+
+    def _convert_to_labels(self, preds):
+        """Convert predictions to class labels."""
+        if preds.ndim > 1 and preds.shape[1] > 1:
+            # Multi-class probabilities -> argmax
+            return np.argmax(preds, axis=1)
+        elif preds.ndim > 1 and preds.shape[1] == 1:
+            # Binary with shape (n, 1)
+            return (preds > 0.5).astype(int).flatten()
+        elif preds.ndim == 1:
+            # Binary probabilities or already labels
+            if preds.dtype.kind in 'iuf':  # int, uint, float
+                # Check if it's probabilities (values between 0 and 1)
+                if np.all((preds >= 0) & (preds <= 1)):
+                    return (preds > 0.5).astype(int)
+                else:
+                    # Assume already labels
+                    return preds.astype(int)
+        return preds
 
     def update(self, preds: torch.Tensor, targets: torch.Tensor):
         """Update state with predictions and targets."""
@@ -56,15 +78,10 @@ class SklearnMetricWrapper(Metric):
             else:
                 # Binary: use the sklearn function directly
                 return self.sklearn_metric_func(targets, preds, **self.metric_kwargs)
-        elif self.sklearn_metric_func == accuracy_score:
-            # For accuracy, if preds are probabilities, convert to class labels
-            if preds.ndim > 1 and preds.shape[1] > 1:
-                preds = np.argmax(preds, axis=1)
-            elif preds.ndim > 1 and preds.shape[1] == 1:
-                preds = (preds > 0.5).astype(int)
-            elif preds.ndim == 1:
-                # Binary probabilities
-                preds = (preds > 0.5).astype(int)
+        elif self.sklearn_metric_func in [accuracy_score, recall_score, precision_score, f1_score]:
+            # For classification metrics, convert predictions to labels if needed
+            preds = self._convert_to_labels(preds)
+            targets = targets.astype(int)
             return self.sklearn_metric_func(targets, preds, **self.metric_kwargs)
         else:
             # For regression metrics and others
@@ -87,6 +104,28 @@ class SklearnAccuracy(SklearnMetricWrapper):
         )
 
 
+class SklearnRecall(SklearnMetricWrapper):
+    """Recall metric using sklearn."""
+    def __init__(self, average='binary', dist_sync_on_step: bool = False, **kwargs):
+        super().__init__(
+            sklearn_metric_func=recall_score,
+            dist_sync_on_step=dist_sync_on_step,
+            average=average,
+            **kwargs
+        )
+
+
+class SklearnPrecision(SklearnMetricWrapper):
+    """Precision metric using sklearn."""
+    def __init__(self, average='binary', dist_sync_on_step: bool = False, **kwargs):
+        super().__init__(
+            sklearn_metric_func=precision_score,
+            dist_sync_on_step=dist_sync_on_step,
+            average=average,
+            **kwargs
+        )
+
+
 class SklearnAUROC(SklearnMetricWrapper):
     """AUROC metric using sklearn."""
 
@@ -97,6 +136,16 @@ class SklearnAUROC(SklearnMetricWrapper):
             **kwargs,
         )
 
+
+class SklearnF1(SklearnMetricWrapper):
+    """F1 Score metric using sklearn."""
+    def __init__(self, average='binary', dist_sync_on_step: bool = False, **kwargs):
+        super().__init__(
+            sklearn_metric_func=f1_score,
+            dist_sync_on_step=dist_sync_on_step,
+            average=average,
+            **kwargs
+        )
 
 class SklearnMSE(SklearnMetricWrapper):
     """Mean Squared Error metric using sklearn."""
@@ -175,6 +224,9 @@ def get_metric(name: str, **params):
     metrics = {
         "accuracy": lambda **p: SklearnAccuracy(**p),
         "acc": lambda **p: SklearnAccuracy(**p),
+        "recall": lambda **p: SklearnRecall(**p),
+        "prec": lambda **p: SklearnPrecision(**p),
+        "f1": lambda **p: SklearnF1(**p),
         "auroc": lambda **p: SklearnAUROC(**p),
         "mse": lambda **p: SklearnMSE(squared=True, **p),
         "rmse": lambda **p: SklearnRMSE(**p),

@@ -18,24 +18,14 @@ class ClassificationTrainer(TemplateTrainer):
         gpu_augmentations,
     ):
         config["loss"] = {"type": "cross_entropy"}
-        super().__init__(config, model, gpu_augmentations)
-
-    def make_metrics(self):
-        return {
-            "acc": Accuracy(task="multiclass", num_classes=self.config.num_classes),
-            "prec": Precision(
-                task="multiclass", num_classes=self.config.num_classes, average="macro"
-            ),
-            "recall": Recall(
-                task="multiclass", num_classes=self.config.num_classes, average="macro"
-            ),
-            "f1": F1Score(
-                task="multiclass", num_classes=self.config.num_classes, average="macro"
-            ),
-            "auroc": AUROC(
-                task="multiclass", num_classes=self.config.num_classes, average="macro"
-            ),
+        config["metrics"] = {
+            "acc": {"type": "acc"},
+            "auroc": {"type": "auroc"},
+            "prec": {"type": "prec"},
+            "f1": {"type": "f1"},
+            "recall": {"type": "recall"},
         }
+        super().__init__(config, model, gpu_augmentations)
 
     def batch_to_loss(self, batch, train=False):
         image, label = self.preprocess_batch(batch, train)
