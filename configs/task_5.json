@@ -1,19 +1,17 @@
 {
   "model": {
-    "variant": "3d",
+    "variant": "2d",
     "size": "small",
     "lora": false
   },
   "pretrained": {
-    "checkpoint": "small/296_518/last.ckpt"
+    "checkpoint": "small/neco/encoder_teacher.ckpt"
   },
   "data": {
     "dataset_name": "CLS003_FOMO26_Polymicrogyria",
-    "crop_size": [224, 160, 224],
+    "crop_size": [518, 518, -1],
     "batch_size": 1,
-    "num_workers": 2,
-    "resample_spacing": "median",
-    "test_time_resize": [224, 160, 224]
+    "num_workers": 2
   },
   "enable_aug": false,
   "optimizer": {

@@ -21,7 +21,7 @@ except ImportError:
     PrimusB = None
 from dynamic_network_architectures.architectures.unet import ResidualEncoderUNet
 
-from med_adapt.models.extended.volume import ViT3DAdaption
+from med_adapt.models.extended.image import ViTv2Adaption
 
 
 def get_network_from_name(
@@ -33,7 +33,7 @@ def get_network_from_name(
     deep_supervision: Union[bool, None] = None,
 ):
     if arch_class_name == "vit3d":
-        network = ViT3DAdaption(
+        network = ViTv2Adaption(
             n_modalities=input_channels,
             classes=output_channels,
             task="segmentation",

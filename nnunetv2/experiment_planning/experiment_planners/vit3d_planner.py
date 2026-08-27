@@ -5,12 +5,13 @@ from nnunetv2.experiment_planning.experiment_planners.default_experiment_planner
     ExperimentPlanner,
 )
 
-from med_adapt.models.extended.volume import ViT3DAdaption
+from med_adapt.models.extended.image import ViTv2Adaption
 
 
-def round_up_to_multiple(values, multiple: int = 8):
-    """Round each element of a tuple up to the nearest multiple (ceiling)."""
-    return tuple(int(np.ceil(v / multiple) * multiple) for v in values)
+def round_up_to_multiple(values, multiple: tuple[int, int, int] = (1, 14, 14)):
+    return tuple(
+        int(np.ceil(v / m) * m) if m != 1 else v for v, m in zip(values, multiple)
+    )
 
 
 class ViT3DPlanner(ExperimentPlanner):
@@ -31,7 +32,7 @@ class ViT3DPlanner(ExperimentPlanner):
             overwrite_target_spacing,
             suppress_transpose,
         )
-        self.UNet_class = ViT3DPlanner
+        self.UNet_class = ViTv2Adaption
 
         self.UNet_reference_val_3d = 680000000
         self.UNet_reference_val_2d = 135000000
@@ -119,4 +120,4 @@ class ViT3DPlanner(ExperimentPlanner):
 
 
 if __name__ == "__main__":
-    net = ViT3DAdaption(n_modalities=1, classes=4, task="segmentation")
+    net = ViTv2Adaption(n_modalities=1, classes=4, task="segmentation")

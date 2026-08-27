@@ -1,15 +1,15 @@
-from .volume import (
-    ViT3DAdaption,
-    vitv2_a_3d_tiny,
-    vitv2_a_3d_small,
-    vitv2_a_3d_base,
-    vitv2_a_3d_large,
+from .image import (
+    ViTv2Adaption,
+    vitv2_a_2d_tiny,
+    vitv2_a_2d_small,
+    vitv2_a_2d_base,
+    vitv2_a_2d_large,
 )
 
 __all__ = [
-    "ViT3DAdaption",
-    "vitv2_a_3d_tiny",
-    "vitv2_a_3d_small",
-    "vitv2_a_3d_base",
-    "vitv2_a_3d_large",
+    "ViTv2Adaption",
+    "vitv2_a_2d_tiny",
+    "vitv2_a_2d_small",
+    "vitv2_a_2d_base",
+    "vitv2_a_2d_large",
 ]

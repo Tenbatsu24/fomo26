@@ -5,7 +5,7 @@ from typing import Union
 from nnunetv2.utilities.find_class_by_name import recursive_find_python_class
 from batchgenerators.utilities.file_and_folder_operations import join
 
-from med_adapt.models.extended.volume import ViT3DAdaption
+from med_adapt.models.extended.image import ViTv2Adaption
 
 
 def get_network_from_plans(
@@ -25,7 +25,7 @@ def get_network_from_plans(
             architecture_kwargs[ri] = pydoc.locate(architecture_kwargs[ri])
 
     nw_class = (
-        pydoc.locate(network_class) if network_class != "vit3d" else ViT3DAdaption
+        pydoc.locate(network_class) if network_class != "vit3d" else ViTv2Adaption
     )
     # sometimes things move around, this makes it so that we can at least recover some of that
     if nw_class is None:

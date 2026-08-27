@@ -1,158 +1,165 @@
-"""Metric registry.
-
-Provides ``get_metric(name)`` to instantiate torchmetrics by name.
-"""
-
-from __future__ import annotations
-
 import torch
+import numpy as np
 
-import torch.nn.functional as F
+from torchmetrics import Metric
+from sklearn.metrics import (
+    accuracy_score,
+    roc_auc_score,
+    mean_squared_error,
+    mean_absolute_error,
+    r2_score,
+)
+from scipy.stats import pearsonr
 
-from torchmetrics.regression import MeanSquaredError
-from torchmetrics.classification import MulticlassAccuracy, MulticlassAUROC
-from torchmetrics import Metric, MeanAbsoluteError, R2Score, PearsonCorrCoef
 
-
-class DiceIoUMetric(Metric):
-    """
-    Sample-wise Dice and IoU metric.
-
-    Predictions:
-        [B, C, H, W, D]
-
-    Targets:
-        [B, 1, H, W, D]
-
-    Notes
-    -----
-    - Uses argmax on predictions.
-    - Computes TP/FP/FN per sample and class.
-    - Classes absent in the GT for a sample are ignored
-      (set to NaN before averaging), similar to nnU-Net.
-    - Averages are sample-wise, not global TP/FP/FN aggregation.
-    """
-
-    full_state_update = False
-    higher_is_better = True
+class SklearnMetricWrapper(Metric):
+    """Wrapper to use sklearn metrics with torchmetrics API."""
 
     def __init__(
         self,
-        num_classes: int,
-        include_background: bool = False,
-        eps: float = 1e-8,
+        sklearn_metric_func,
+        compute_kwargs=None,
         dist_sync_on_step: bool = False,
+        **metric_kwargs,
     ):
         super().__init__(dist_sync_on_step=dist_sync_on_step)
+        self.sklearn_metric_func = sklearn_metric_func
+        self.compute_kwargs = compute_kwargs or {}
+        self.metric_kwargs = metric_kwargs
 
-        self.num_classes = num_classes
-        self.include_background = include_background
-        self.eps = eps
+        self.add_state("preds", default=[], dist_reduce_fx="cat")
+        self.add_state("targets", default=[], dist_reduce_fx="cat")
 
-        self.add_state(
-            "tp",
-            default=[],
-            dist_reduce_fx="cat",
-        )
+    def update(self, preds: torch.Tensor, targets: torch.Tensor):
+        """Update state with predictions and targets."""
+        # Convert to numpy and store
+        if isinstance(preds, torch.Tensor):
+            preds = preds.detach().cpu()
+        if isinstance(targets, torch.Tensor):
+            targets = targets.detach().cpu()
 
-        self.add_state(
-            "fp",
-            default=[],
-            dist_reduce_fx="cat",
-        )
-
-        self.add_state(
-            "fn",
-            default=[],
-            dist_reduce_fx="cat",
-        )
-
-        self.add_state(
-            "gt_pixels",
-            default=[],
-            dist_reduce_fx="cat",
-        )
-
-    @torch.no_grad()
-    def update(
-        self,
-        preds: torch.Tensor,
-        target: torch.Tensor,
-    ) -> None:
-        """
-        Parameters
-        ----------
-        preds : torch.Tensor
-            Shape [B, C, H, W, D]
-        target : torch.Tensor
-            Shape [B, 1, H, W, D]
-        """
-
-        pred_labels = preds.argmax(dim=1)
-        target = target[:, 0].long()
-
-        pred_oh = (
-            F.one_hot(
-                pred_labels,
-                num_classes=self.num_classes,
-            )
-            .movedim(-1, 1)
-            .bool()
-        )
-
-        target_oh = (
-            F.one_hot(
-                target,
-                num_classes=self.num_classes,
-            )
-            .movedim(-1, 1)
-            .bool()
-        )
-
-        spatial_dims = tuple(range(2, pred_oh.ndim))
-
-        tp = (pred_oh & target_oh).sum(dim=spatial_dims)
-        fp = (pred_oh & ~target_oh).sum(dim=spatial_dims)
-        fn = (~pred_oh & target_oh).sum(dim=spatial_dims)
-
-        gt_pixels = target_oh.sum(dim=spatial_dims)
-
-        self.tp.append(tp)
-        self.fp.append(fp)
-        self.fn.append(fn)
-        self.gt_pixels.append(gt_pixels)
+        self.preds.append(preds)
+        self.targets.append(targets)
 
     def compute(self):
+        preds = torch.concatenate(self.preds, dim=0).numpy()
+        targets = torch.concatenate(self.targets, dim=0).numpy()
 
-        tp = torch.cat(self.tp, dim=0).float()
-        fp = torch.cat(self.fp, dim=0).float()
-        fn = torch.cat(self.fn, dim=0).float()
+        # Special handling for different metrics
+        if self.sklearn_metric_func == roc_auc_score:
+            # For AUROC, handle multi-class properly
+            if preds.ndim > 1 and preds.shape[1] > 1:
+                # Multi-class: use one-vs-rest
+                return roc_auc_score(
+                    targets, preds, multi_class="ovr", **self.metric_kwargs
+                )
+            else:
+                # Binary: use the sklearn function directly
+                return self.sklearn_metric_func(targets, preds, **self.metric_kwargs)
+        elif self.sklearn_metric_func == accuracy_score:
+            # For accuracy, if preds are probabilities, convert to class labels
+            if preds.ndim > 1 and preds.shape[1] > 1:
+                preds = np.argmax(preds, axis=1)
+            elif preds.ndim > 1 and preds.shape[1] == 1:
+                preds = (preds > 0.5).astype(int)
+            elif preds.ndim == 1:
+                # Binary probabilities
+                preds = (preds > 0.5).astype(int)
+            return self.sklearn_metric_func(targets, preds, **self.metric_kwargs)
+        else:
+            # For regression metrics and others
+            return self.sklearn_metric_func(targets, preds, **self.metric_kwargs)
 
-        gt_pixels = torch.cat(self.gt_pixels, dim=0)
+    def reset(self):
+        """Reset the metric state."""
+        self.preds = []
+        self.targets = []
 
-        dice = (2.0 * tp) / (2.0 * tp + fp + fn + self.eps)
-        # iou = tp / (tp + fp + fn + self.eps)
 
-        # Ignore classes absent in GT for a sample
-        valid = gt_pixels > 0
+class SklearnAccuracy(SklearnMetricWrapper):
+    """Accuracy metric using sklearn."""
 
-        dice = dice.masked_fill(~valid, torch.nan)
-        # iou = iou.masked_fill(~valid, torch.nan)
+    def __init__(self, dist_sync_on_step: bool = False, **kwargs):
+        super().__init__(
+            sklearn_metric_func=accuracy_score,
+            dist_sync_on_step=dist_sync_on_step,
+            **kwargs,
+        )
 
-        start_idx = 0 if self.include_background else 1
 
-        dice_fg = dice[:, start_idx:]
-        # iou_fg = iou[:, start_idx:]
+class SklearnAUROC(SklearnMetricWrapper):
+    """AUROC metric using sklearn."""
 
-        return torch.nanmean(dice_fg)
-        # {
-        # average over samples
-        # "dice_per_class": torch.nanmean(dice_fg, dim=0),
-        # "iou_per_class": torch.nanmean(iou_fg, dim=0),
-        # average over samples and classes
-        # "mean_dice": torch.nanmean(dice_fg),
-        # "mean_iou": torch.nanmean(iou_fg),
-        # }
+    def __init__(self, dist_sync_on_step: bool = False, **kwargs):
+        super().__init__(
+            sklearn_metric_func=roc_auc_score,
+            dist_sync_on_step=dist_sync_on_step,
+            **kwargs,
+        )
+
+
+class SklearnMSE(SklearnMetricWrapper):
+    """Mean Squared Error metric using sklearn."""
+
+    def __init__(self, squared=True, dist_sync_on_step: bool = False, **kwargs):
+        # sklearn mse doesn't take squared parameter, it's always squared
+        super().__init__(
+            sklearn_metric_func=mean_squared_error,
+            dist_sync_on_step=dist_sync_on_step,
+            **kwargs,
+        )
+
+
+class SklearnRMSE(SklearnMetricWrapper):
+    """Root Mean Squared Error metric using sklearn."""
+
+    def __init__(self, dist_sync_on_step: bool = False, **kwargs):
+        super().__init__(
+            sklearn_metric_func=mean_squared_error,
+            dist_sync_on_step=dist_sync_on_step,
+            **kwargs,
+        )
+
+    def compute(self):
+        """Compute RMSE by taking sqrt of MSE."""
+        mse = super().compute()
+        return np.sqrt(mse)
+
+
+class SklearnMAE(SklearnMetricWrapper):
+    """Mean Absolute Error metric using sklearn."""
+
+    def __init__(self, dist_sync_on_step: bool = False, **kwargs):
+        super().__init__(
+            sklearn_metric_func=mean_absolute_error,
+            dist_sync_on_step=dist_sync_on_step,
+            **kwargs,
+        )
+
+
+class SklearnR2(SklearnMetricWrapper):
+    """R2 Score metric using sklearn."""
+
+    def __init__(self, dist_sync_on_step: bool = False, **kwargs):
+        super().__init__(
+            sklearn_metric_func=r2_score, dist_sync_on_step=dist_sync_on_step, **kwargs
+        )
+
+
+class SklearnPearsonCorr(SklearnMetricWrapper):
+    """Pearson Correlation Coefficient using sklearn."""
+
+    def __init__(self, dist_sync_on_step: bool = False, **kwargs):
+        super().__init__(
+            sklearn_metric_func=pearsonr, dist_sync_on_step=dist_sync_on_step, **kwargs
+        )
+
+    def compute(self):
+        """Compute Pearson correlation coefficient."""
+        preds = torch.concatenate(self.preds, dim=0).numpy()
+        targets = torch.concatenate(self.targets, dim=0).numpy()
+        # pearsonr returns (correlation, p-value)
+        return pearsonr(targets.flatten(), preds.flatten())[0]
 
 
 def get_metric(name: str, **params):
@@ -166,16 +173,14 @@ def get_metric(name: str, **params):
         A torchmetrics :class:`Metric` instance.
     """
     metrics = {
-        "accuracy": lambda **p: MulticlassAccuracy(**p),
-        "acc": lambda **p: MulticlassAccuracy(**p),
-        "auroc": lambda **p: MulticlassAUROC(**p, thresholds=11),
-        "mse": lambda **p: MeanSquaredError(squared=True, **p),
-        "rmse": lambda **p: MeanSquaredError(squared=False, **p),
-        "l2": lambda **p: MeanSquaredError(squared=False, **p),
-        "mae": lambda **p: MeanAbsoluteError(**p),
-        "r2": lambda **p: R2Score(**p),
-        "corr": lambda **p: PearsonCorrCoef(**p),
-        "mean_dice": lambda **p: DiceIoUMetric(**p),
+        "accuracy": lambda **p: SklearnAccuracy(**p),
+        "acc": lambda **p: SklearnAccuracy(**p),
+        "auroc": lambda **p: SklearnAUROC(**p),
+        "mse": lambda **p: SklearnMSE(squared=True, **p),
+        "rmse": lambda **p: SklearnRMSE(**p),
+        "mae": lambda **p: SklearnMAE(**p),
+        "r2": lambda **p: SklearnR2(**p),
+        "corr": lambda **p: SklearnPearsonCorr(**p),
     }
     if name not in metrics:
         raise ValueError(f"Unknown metric {name!r}. Available: {list(metrics)}")

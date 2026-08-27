@@ -162,12 +162,12 @@ if __name__ == "__main__":
     root = Path("data")
 
     datasets = [
-        # Task1InfarctClassification,
-        Task1InfarctSegmentation,
-        Task2MeningiomaSegmentation,
-        # Task3BrainAgeRegression,
-        Task4TrigeminalNeuralgiaSegmentation,
-        # Task5PolymicrogyriaClassification,
+        Task1InfarctClassification,
+        # Task1InfarctSegmentation,
+        # Task2MeningiomaSegmentation,
+        Task3BrainAgeRegression,
+        # Task4TrigeminalNeuralgiaSegmentation,
+        Task5PolymicrogyriaClassification,
     ]
 
     logger.info("=" * 100)
@@ -192,17 +192,13 @@ if __name__ == "__main__":
                 seed=args.seed,
                 n_splits=args.n_splits,
             )
-            dataset.convert_to_nnunet_format(
-                idx, "".join(dataset_cls.TASK_NAME.split(" "))
-            )
-            continue
+            # dataset.convert_to_nnunet_format(
+            #     idx, "".join(dataset_cls.TASK_NAME.split(" "))
+            # )
+            # continue
 
             logger.info(
                 f"Finished inspection of {dataset_cls.TASK_NAME}",
-            )
-
-            logger.info(
-                f"Statistics saved to: {dataset.statistics_path}",
             )
 
             logger.info(

@@ -166,13 +166,14 @@ class ScaleDecode(nn.Module):
 if __name__ == "__main__":
     import thop
 
-    x = torch.randn(1, 384, 37, 37, 37, device="cuda")
+    x = torch.randn(1, 384, 14, 14, 296, device="cuda")
     patch_sizes = [
-        (8, 8, 8),
+        (14, 14, 1),
     ]  # Add more for comparison
 
     results = []
     for patch_size in patch_sizes:
+        print(build_stride_schedule(patch_size))
         decoder = ScaleDecode(
             patch_size=patch_size,
             embed_dim=384,

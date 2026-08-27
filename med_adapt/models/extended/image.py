@@ -1,4 +1,4 @@
-from typing import Literal
+from typing import Literal, Optional
 from functools import partial
 
 import torch
@@ -9,7 +9,7 @@ from einops import rearrange
 from med_adapt.models.base import ViTv2
 from med_adapt.registry import register_model
 from med_adapt.utils.config import get_logger
-from med_adapt.adapter import InputChannelAdapter
+from med_adapt.adapter import InputChannelAdapter, AttentionPooling
 from med_adapt.layers import (
     Block,
     ScaleDecode,
@@ -22,73 +22,77 @@ from med_adapt.layers import (
 logger = get_logger(__name__)
 
 
+def _maybe_to_2_tuple(val):
+    if isinstance(val, (tuple, list)):
+        assert len(val) == 2, f"Found {len(val)=}, expected 2"
+        return tuple(val)
+    else:
+        return tuple([val for _ in range(2)])
+
+
 class ViTv2Adaption(ViTv2):
 
     def __init__(
         self,
-        med_in_channels: int,
+        n_modalities,
         task: Literal["regression", "classification", "segmentation", "none"],
         classes: int,
-        *args,
-        volume_size=None,
-        volume_patch_size=None,
-        query_from: int = -6,
+        depth_last=True,
+        query_from: Optional[int] = None,
+        num_q_tokens: Optional[int] = None,
         **kwargs,
     ):
-        super(ViTv2Adaption, self).__init__(*args, **kwargs)
-        if volume_size is not None or volume_patch_size is not None:
-            logger.warning(
-                f"volume_size={volume_size} and volume_patch_size={volume_patch_size} are not used in this 2D adaptation. Ignored.",
-            )
+        super(ViTv2Adaption, self).__init__(**kwargs)
 
         self.task = task
-        self.input_adapter = InputChannelAdapter(in_channels=med_in_channels)
+        self.classes = classes
+        self.n_modalities = n_modalities
+        self.depth_last = depth_last
 
-        # Query tokens: one set per volume, not per slice
-        self.num_q_tokens = 1 if task == "classification" else classes
-        self.query_tokens = nn.Parameter(
-            torch.zeros(1, self.num_q_tokens, self.embed_dim), requires_grad=True
-        )
-        nn.init.normal_(self.query_tokens, std=1e-6)
-
-        # Cross-attention blocks: one per transformer block from query_from onward
-        self.num_blocks = len(self.blocks)
-        self.query_from = query_from
+        if query_from is None:
+            query_from = -3
         self.query_from = (
-            self.num_blocks + self.query_from
-            if self.query_from < 0
-            else self.query_from
+            len(self.blocks) + query_from if query_from < 0 else query_from
         )
 
-        # Task-specific heads
-        if task == "segmentation":
-            self.patch_decode = ScaleDecode(
-                (self.patch_size, self.patch_size, 1), self.embed_dim, classes
+        if n_modalities != 3:
+            self.input_adapter = InputChannelAdapter(in_channels=n_modalities)
+        else:
+            self.input_adapter = nn.Identity()
+
+        if task in ["classification", "regression"]:
+            self.num_q_tokens = num_q_tokens if num_q_tokens is not None else 4
+            self.query_tokens = nn.Parameter(
+                torch.zeros(1, self.num_q_tokens, self.embed_dim)
             )
-        elif task == "classification":
-            self.query_mlp = nn.Sequential(
-                nn.Linear(self.embed_dim, self.embed_dim, bias=True),
-                nn.GELU(),
-                nn.Linear(self.embed_dim, self.embed_dim // 4, bias=True),
-                nn.GELU(),
-                nn.Linear(self.embed_dim // 4, classes, bias=False),
+            nn.init.normal_(self.query_tokens, std=1e-6)
+            self.query_norm = nn.LayerNorm(self.embed_dim, eps=1e-6)
+            self.attn_head = nn.Sequential(
+                AttentionPooling(self.embed_dim, num_classes=1, num_heads=4),
+                nn.Linear(self.embed_dim, classes),
             )
-        else:  # regression
-            self.query_mlp = nn.ModuleDict(
-                {
-                    f"class_{i}": nn.Sequential(
-                        nn.Linear(self.embed_dim, self.embed_dim, bias=True),
-                        nn.GELU(),
-                        nn.Linear(self.embed_dim, self.embed_dim // 4, bias=True),
-                        nn.GELU(),
-                        nn.Linear(self.embed_dim // 4, 1, bias=True),
-                    )
-                    for i in range(self.num_q_tokens)
-                }
-            )
+        else:  # task == "segmentation":
+            self.num_q_tokens = 0
+            self.query_tokens = None
+            if self.task == "segmentation":
+                if self.depth_last:
+                    scale_decode_patch_size = (self.patch_size, self.patch_size, 1)
+                else:
+                    scale_decode_patch_size = (1, self.patch_size, self.patch_size)
+                self.head = ScaleDecode(
+                    scale_decode_patch_size, self.embed_dim, classes
+                )
+
+        self.register_buffer(
+            "imagenet_mean",
+            torch.tensor([0.485, 0.456, 0.406]).view(1, 3, 1, 1, 1),
+        )
+        self.register_buffer(
+            "imagenet_std",
+            torch.tensor([0.229, 0.224, 0.225]).view(1, 3, 1, 1, 1),
+        )
 
     def prepare_tokens(self, x):
-        # x here is the 2D reshaped input: (B*d, C, H, W)
         b_orig, c, h, w = x.shape  # B_orig = B * d (depth-folded)
 
         x = self.patch_embed(x)
@@ -109,74 +113,66 @@ class ViTv2Adaption(ViTv2):
         return x
 
     def forward(self, x, **kwargs):
-        b, c, h, w, d = x.shape
+        if self.depth_last:
+            b, c, h, w, d = x.shape
+        else:
+            b, c, d, h, w = x.shape
+        lp = tuple(l // p for l, p in zip([h, w], [self.patch_size, self.patch_size]))
 
-        adapted_x = self.input_adapter(x)
-        reshaped_x = rearrange(adapted_x, "b c ... d -> (b d) c ...")
+        volume = self.input_adapter(x)
 
-        x = self.prepare_tokens(reshaped_x)
+        ch_min = volume.amin(dim=(1, 2, 3, 4), keepdim=True)
+        ch_max = volume.amax(dim=(1, 2, 3, 4), keepdim=True)
 
-        preds = []
-        attn_bias = None
+        denom = ch_max - ch_min
+        denom = torch.where(denom < 0.1, 1.0, denom)
+
+        vol_norm = (volume - ch_min) / denom
+        vol_norm = (vol_norm - self.imagenet_mean) / self.imagenet_std
+
+        if self.depth_last:
+            folded_vol = rearrange(vol_norm, "b ... d -> (b d) ...")
+        else:
+            folded_vol = rearrange(vol_norm, "b c d ... -> (b d) c ...")
+
+        x = self.prepare_tokens(folded_vol)  # [b * d, n, c]
 
         for i, blk in enumerate(self.blocks):
-            if i == self.query_from:
-                # Insert query tokens repeated for each folded slice
+            if (self.query_tokens is not None) and (i == self.query_from):
                 x = torch.cat((self.query_tokens.repeat(b * d, 1, 1), x), dim=1)
+            x = blk(x)
 
-            # logger.debug(f"Depth: {i=}, {x.shape}")
-            x = blk(x, attn_bias=attn_bias)
+        unfolded_x = rearrange(x, "(b d) n c -> b n d c", b=b, d=d)
 
-            if i >= self.query_from:
-                num_q = self.num_q_tokens
-                num_reg = self.num_register_tokens
-
-                # Split folded sequence
-                query_tokens = x[:, :num_q, :]
-                register_and_cls = x[:, num_q : num_q + num_reg + 1, :]
-                patch_tokens = x[:, num_q + num_reg + 1 :, :]
-
-                # Aggregate queries across depth: (B*D, Q, E) -> (B, Q, E)
-                queries = query_tokens.reshape(b, d, num_q, -1).mean(dim=1)
-
-                # Replace queries in sequence (repeat for each slice) for subsequent blocks
-                x = torch.cat(
-                    (queries.repeat(d, 1, 1), register_and_cls, patch_tokens), dim=1
-                )
-
-                # Generate prediction
-                if self.task == "segmentation":
-                    patch_latents = x[:, num_q + num_reg + 1 :, :]
-                    h_p = h // self.patch_size
-                    w_p = w // self.patch_size
-                    # Reshape to 3D volume: (B, D, H_p, W_p, E) -> (B, E, D, H_p, W_p)
-                    patch_latents = patch_latents.reshape(
-                        b, d, h_p, w_p, self.embed_dim
-                    )
-                    patch_latents = patch_latents.permute(0, 4, 1, 2, 3)
-
-                    patch_decode = self.patch_decode(patch_latents)
-
-                    preds.append(patch_decode)
-                elif self.task == "classification":
-                    cls_pred = self.query_mlp(queries[:, 0])
-                    preds.append(cls_pred)
-                else:  # regression
-                    reg_pred = [
-                        self.query_mlp[f"class_{i}"](queries[:, i, :])
-                        for i in range(self.num_q_tokens)
-                    ]
-                    preds.append(reg_pred)
-
-        return preds
+        if self.task == "segmentation":
+            patch_tokens = self.norm(
+                unfolded_x[:, self.num_q_tokens + self.num_register_tokens + 1 :, ...]
+            )
+            spatial = patch_tokens.unflatten(1, lp).permute(0, -1, 1, 2, 3)
+            if not self.depth_last:
+                spatial = spatial.permute(0, 1, -1, 2, 3)
+            pred = self.head(spatial)
+        elif self.task in ["classification", "regression"]:
+            query_latent = self.query_norm(
+                unfolded_x[:, : self.num_q_tokens, ...].flatten(1, 2)
+            )  # [b q*d c]
+            pred = self.attn_head(query_latent).squeeze(1)
+            if self.task == "regression":
+                pred = 100 * torch.sigmoid(pred)
+        else:
+            all_cls = self.norm(unfolded_x[:, : self.num_register_tokens + 1, ...])[
+                :, 0, ...
+            ]
+            pairwise_dist = torch.cdist(all_cls, all_cls, p=2)
+            medoid_idx = pairwise_dist.sum(dim=-1).argmin(dim=-1)
+            pred = all_cls[
+                torch.arange(b, device=all_cls.device),
+                medoid_idx,
+            ]
+        return pred
 
     def additional_trainable(self):
-        return [
-            "query_mlp",
-            "query_tokens",
-            "patch_decode",
-            "input_adapter",
-        ]
+        return ["query_tokens", "query_norm", "attn_head", "input_adapter", "head"]
 
     def do_not_load(self):
         return None
@@ -279,7 +275,5 @@ def vitv2_a_2d_large(lora=False, mea=True, **kwargs):
 
 
 if __name__ == "__main__":
-    _m = vitv2_a_2d_small(
-        med_in_channels=1, task="segmentation", classes=2, lora=True
-    ).to("cuda")
-    _m(torch.randn(1, 1, 196, 196, 16, device="cuda", dtype=torch.float32))
+    _m = vitv2_a_2d_small(n_modalities=1, task="segmentation", classes=2).to("cuda")
+    print(_m(torch.randn(1, 1, 196, 196, 16, device="cuda", dtype=torch.float32)).shape)

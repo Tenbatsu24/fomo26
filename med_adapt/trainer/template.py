@@ -242,13 +242,8 @@ class TemplateTrainer(pl.LightningModule):
             return loss
 
     def log_metrics(self, batch_metrics):
-        metric_dict = {
-            k: torch.mean(v) if len(v.shape) > 0 else v
-            for k, v in batch_metrics.items()
-            if not torch.all(torch.isnan(v))
-        }
         self.log_dict(
-            metric_dict, prog_bar=True, on_epoch=False, on_step=True, logger=False
+            batch_metrics, prog_bar=True, on_epoch=False, on_step=True, logger=True
         )
 
     def training_step(self, batch, batch_idx):

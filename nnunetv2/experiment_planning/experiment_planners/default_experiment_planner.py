@@ -268,10 +268,16 @@ class ExperimentPlanner(object):
         normalization_schemes = [
             get_normalization_scheme(m) for m in modalities.values()
         ]
-        use_nonzero_mask_for_norm = [False] * len(normalization_schemes)
-        assert all([i in (True, False) for i in use_nonzero_mask_for_norm]), (
-            "use_nonzero_mask_for_norm must be " "True or False and cannot be None"
-        )
+        if self.dataset_fingerprint["median_relative_size_after_cropping"] < (3 / 4.0):
+            use_nonzero_mask_for_norm = [
+                i.leaves_pixels_outside_mask_at_zero_if_use_mask_for_norm_is_true
+                for i in normalization_schemes
+            ]
+        else:
+            use_nonzero_mask_for_norm = [False] * len(normalization_schemes)
+            assert all([i in (True, False) for i in use_nonzero_mask_for_norm]), (
+                "use_nonzero_mask_for_norm must be " "True or False and cannot be None"
+            )
         normalization_schemes = [i.__name__ for i in normalization_schemes]
         return normalization_schemes, use_nonzero_mask_for_norm
 

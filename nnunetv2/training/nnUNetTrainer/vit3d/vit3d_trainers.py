@@ -6,7 +6,7 @@ import torch
 from torch import nn, autocast
 
 from med_adapt.utils import get_models_path, mark_trainable
-from med_adapt.models.extended.volume import vitv2_a_3d_small
+from med_adapt.models.extended.image import vitv2_a_2d_small
 
 from nnunetv2.training.nnUNetTrainer.variants.lr_schedule.nnUNetTrainer_warmup import (
     nnUNetTrainer_warmup,
@@ -225,7 +225,7 @@ class UNetViT3DSmallTrainer(AbstractViT3DAdaption):
     ):
         super().__init__(plans, configuration, fold, dataset_json, device)
 
-        self.ckpt_path = "small/296_518/last.ckpt"
+        self.ckpt_path = "small/neco/encoder_teacher.ckpt"
 
     @staticmethod
     def build_network_architecture(
@@ -236,10 +236,11 @@ class UNetViT3DSmallTrainer(AbstractViT3DAdaption):
         enable_deep_supervision: bool = True,
     ) -> nn.Module:
 
-        model = vitv2_a_3d_small(
+        model = vitv2_a_2d_small(
             n_modalities=num_input_channels,
             task="segmentation",
             classes=num_output_channels,
+            depth_last=False,
         )
 
         return model
