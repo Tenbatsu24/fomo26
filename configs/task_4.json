@@ -13,7 +13,7 @@
     "batch_size": 1,
     "num_workers": 2
   },
-  "enable_aug": false,
+  "enable_aug": true,
   "optimizer": {
     "type": "AdamW",
     "params": {
