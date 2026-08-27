@@ -1,3 +1,5 @@
+from abc import ABC
+
 import torch
 import numpy as np
 
@@ -10,12 +12,12 @@ from sklearn.metrics import (
     r2_score,
     recall_score,
     precision_score,
-    f1_score
+    f1_score,
 )
 from scipy.stats import pearsonr
 
 
-class SklearnMetricWrapper(Metric):
+class SklearnMetricWrapper(Metric, ABC):
     """Wrapper to use sklearn metrics with torchmetrics API."""
 
     def __init__(
@@ -43,7 +45,7 @@ class SklearnMetricWrapper(Metric):
             return (preds > 0.5).astype(int).flatten()
         elif preds.ndim == 1:
             # Binary probabilities or already labels
-            if preds.dtype.kind in 'iuf':  # int, uint, float
+            if preds.dtype.kind in "iuf":  # int, uint, float
                 # Check if it's probabilities (values between 0 and 1)
                 if np.all((preds >= 0) & (preds <= 1)):
                     return (preds > 0.5).astype(int)
@@ -63,22 +65,47 @@ class SklearnMetricWrapper(Metric):
         self.preds.append(preds)
         self.targets.append(targets)
 
+    def _prepare_for_roc_auc(self, preds, targets):
+        """Prepare predictions and targets for ROC AUC."""
+        # Handle binary predictions
+        if preds.ndim == 2 and preds.shape[1] == 2:
+            # Binary with 2 columns (probabilities for both classes)
+            # Use probability of positive class (column 1)
+            preds = preds[:, 1]
+        elif preds.ndim == 2 and preds.shape[1] == 1:
+            preds = preds.flatten()
+        elif preds.ndim > 1 and preds.shape[1] > 2:
+            # Multi-class: keep as is for ovr
+            pass
+
+        # Ensure targets are 1D
+        if targets.ndim > 1:
+            targets = targets.flatten()
+
+        return preds, targets
+
     def compute(self):
+        """Compute the metric using sklearn."""
+        # Concatenate all stored predictions and targets
         preds = torch.concatenate(self.preds, dim=0).numpy()
         targets = torch.concatenate(self.targets, dim=0).numpy()
 
         # Special handling for different metrics
         if self.sklearn_metric_func == roc_auc_score:
-            # For AUROC, handle multi-class properly
-            if preds.ndim > 1 and preds.shape[1] > 1:
+            preds, targets = self._prepare_for_roc_auc(preds, targets)
+            if preds.ndim > 1 and preds.shape[1] > 2:
                 # Multi-class: use one-vs-rest
                 return roc_auc_score(
                     targets, preds, multi_class="ovr", **self.metric_kwargs
                 )
             else:
-                # Binary: use the sklearn function directly
-                return self.sklearn_metric_func(targets, preds, **self.metric_kwargs)
-        elif self.sklearn_metric_func in [accuracy_score, recall_score, precision_score, f1_score]:
+                return roc_auc_score(targets, preds, **self.metric_kwargs)
+        elif self.sklearn_metric_func in [
+            accuracy_score,
+            recall_score,
+            precision_score,
+            f1_score,
+        ]:
             # For classification metrics, convert predictions to labels if needed
             preds = self._convert_to_labels(preds)
             targets = targets.astype(int)
@@ -106,23 +133,25 @@ class SklearnAccuracy(SklearnMetricWrapper):
 
 class SklearnRecall(SklearnMetricWrapper):
     """Recall metric using sklearn."""
-    def __init__(self, average='binary', dist_sync_on_step: bool = False, **kwargs):
+
+    def __init__(self, average="binary", dist_sync_on_step: bool = False, **kwargs):
         super().__init__(
             sklearn_metric_func=recall_score,
             dist_sync_on_step=dist_sync_on_step,
             average=average,
-            **kwargs
+            **kwargs,
         )
 
 
 class SklearnPrecision(SklearnMetricWrapper):
     """Precision metric using sklearn."""
-    def __init__(self, average='binary', dist_sync_on_step: bool = False, **kwargs):
+
+    def __init__(self, average="binary", dist_sync_on_step: bool = False, **kwargs):
         super().__init__(
             sklearn_metric_func=precision_score,
             dist_sync_on_step=dist_sync_on_step,
             average=average,
-            **kwargs
+            **kwargs,
         )
 
 
@@ -139,13 +168,15 @@ class SklearnAUROC(SklearnMetricWrapper):
 
 class SklearnF1(SklearnMetricWrapper):
     """F1 Score metric using sklearn."""
-    def __init__(self, average='binary', dist_sync_on_step: bool = False, **kwargs):
+
+    def __init__(self, average="binary", dist_sync_on_step: bool = False, **kwargs):
         super().__init__(
             sklearn_metric_func=f1_score,
             dist_sync_on_step=dist_sync_on_step,
             average=average,
-            **kwargs
+            **kwargs,
         )
+
 
 class SklearnMSE(SklearnMetricWrapper):
     """Mean Squared Error metric using sklearn."""

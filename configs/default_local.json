@@ -8,7 +8,7 @@
     "checkpoint": "small/neco/encoder_teacher.ckpt"
   },
   "data": {
-    "dataset_name": "REGR002_FOMO26_BrainAge",
+    "dataset_name": "CLS002_FOMO26_Infarct",
     "crop_size": [196, 196, -1],
     "batch_size": 1,
     "num_workers": 2
