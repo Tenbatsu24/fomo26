@@ -245,7 +245,6 @@ def main():
         dataset_name,
         config.model.size,
         config.model.variant,
-        config.model.lora,
     )
     results_path = get_results_path()
 
