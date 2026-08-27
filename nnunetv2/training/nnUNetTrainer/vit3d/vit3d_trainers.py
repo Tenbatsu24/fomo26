@@ -65,6 +65,7 @@ class AbstractViT3DAdaption(nnUNetTrainer_warmup):
             self.network,
             additional_keys=self.network.additional_trainable(),
         )
+        print(self.network.additional_trainable())
 
         if self.training_stage == stage:
             return self.optimizer, self.lr_scheduler

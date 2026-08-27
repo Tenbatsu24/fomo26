@@ -380,12 +380,14 @@ class MedicalTaskDataset(IterableDataset):
 
         rng = random.Random(self.seed)
 
-        while True:
-            indices = list(range(len(self)))
-
-            if self.split == "train":
+        if self.split == "train":
+            while True:
+                indices = list(range(len(self)))
                 rng.shuffle(indices)
-
+                for idx in indices[global_worker_id::global_workers]:
+                    yield self[idx]
+        else:
+            indices = list(range(len(self)))
             for idx in indices[global_worker_id::global_workers]:
                 yield self[idx]
 
