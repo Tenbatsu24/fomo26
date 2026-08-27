@@ -12,7 +12,8 @@ from typing import Tuple
 
 import numpy as np
 import nibabel as nib
-from scipy.ndimage import zoom
+
+from scipy.ndimage import zoom, binary_fill_holes
 
 
 def _percentile_zscore(
@@ -55,7 +56,7 @@ def _percentile_zscore(
     mean = values.mean()
     std = values.std()
 
-    if std > 0.1:
+    if std > 1e-4:
         image = (image - mean) / std
     else:
         image = image - mean

@@ -26,14 +26,13 @@ from med_adapt.augs.default import (
     default_enable_aug,
     default_disable_aug,
 )
-from med_adapt.augs.custom import (
-    PadToShape3D,
+from med_adapt.augs import (
     Resize3D,
-    RandomSwapSpatialDims3D,
+    PadToShape3D,
     RandomResizedCrop3D,
     RandomFlipSpatialDims3D,
+    RandomRotate90SpatialPlane3D,
     CenterCrop3D,
-    ClassAwareRandomResizedCrop3D,
 )
 from med_adapt.trainer import (
     ClassificationTrainer,
@@ -52,9 +51,10 @@ TRAINER_CLASSES = {
 }
 
 
-def round_up_to_multiple(values, multiple: int = 8):
-    """Round each element of a tuple up to the nearest multiple (ceiling)."""
-    return tuple(int(np.ceil(v / multiple) * multiple) for v in values)
+def round_up_to_multiple(values, multiple: tuple[int, int, int] = (8, 8, 8)):
+    return tuple(
+        int(np.ceil(v / m) * m) if m != 1 else v for v, m in zip(values, multiple)
+    )
 
 
 # code injection
@@ -100,51 +100,30 @@ def get_task_from_dataset_name(dataset_name: str) -> str:
         raise ValueError(f"Cannot infer task from dataset name: {dataset_name}")
 
 
-def build_cpu_transforms(crop_size, stage, task, test_time_resize=None):
+def build_cpu_transforms(crop_size, stage, task):
     """Build CPU-side crop/pad/resize transforms."""
     label_key = "label" if task == "segmentation" else None
     if stage == "train":
         tforms = [
+            RandomRotate90SpatialPlane3D(label_key=label_key),
             RandomFlipSpatialDims3D(label_key=label_key),
-            (
-                RandomResizedCrop3D(
-                    size=crop_size, label_key=label_key, scale=(0.7, 1.0)
-                )
-                if task != "segmentation"
-                else ClassAwareRandomResizedCrop3D(size=crop_size)
-            ),
+            PadToShape3D(size=crop_size, label_key=label_key),
+            CenterCrop3D(size=crop_size, label_key=label_key),
+            RandomResizedCrop3D(size=crop_size, label_key=label_key, scale=(0.5, 1.0)),
         ]
-        if task == "regression":
-            tforms.insert(0, RandomSwapSpatialDims3D(label_key=label_key))
-    elif stage == "val":
-        tforms = (
-            [Resize3D(size=crop_size, label_key=label_key)]
-            if task != "segmentation"
-            else (
-                [
-                    PadToShape3D(size=crop_size, label_key=label_key),
-                    CenterCrop3D(size=crop_size, label_key=label_key),
-                ]
-            )
-        )
-    else:
-        tforms = (
-            [Resize3D(size=test_time_resize, label_key=label_key)]
-            if test_time_resize is not None
-            else []
-        )
+    else:  # stage == "val" or "test":
+        tforms = [
+            PadToShape3D(size=crop_size, label_key=label_key),
+            CenterCrop3D(size=crop_size, label_key=label_key),
+        ]
     return transforms.Compose(tforms)
 
 
 def build_model(config, task, n_modalities, n_classes, lora, mea):
     """Build model from registry using config parameters."""
-    variant = config.model.variant
     size = config.model.size
 
-    if variant == "2d":
-        registry_key = f"vitv2_a_2d_{size}"
-    else:
-        registry_key = f"vitv2_a_3d_{size}"
+    registry_key = f"vitv2_a_3d_{size}"
 
     builder = STORE.get("models", registry_key)
 
@@ -224,26 +203,7 @@ def main():
     seed = config.seed
 
     crop_size = config.data.crop_size
-    test_time_resize = config.data.test_time_resize
-
-    if isinstance(crop_size, str) and crop_size == "median":
-        crop_size = round_up_to_multiple(dataset_class.median_resolution(), multiple=8)
-    else:
-        crop_size = tuple(crop_size) if crop_size is not None else None
     logger.info(f"Using {crop_size=}")
-
-    if isinstance(test_time_resize, str) and test_time_resize == "median":
-        test_time_resize = round_up_to_multiple(
-            dataset_class.median_resolution(), multiple=8
-        )
-    else:
-        test_time_resize = (
-            tuple(test_time_resize) if test_time_resize is not None else None
-        )
-    logger.info(f"Using {test_time_resize=}")
-
-    config.data.crop_size = crop_size
-    config.data.test_time_resize = test_time_resize
 
     train_cpu_transforms = build_cpu_transforms(
         crop_size,
@@ -254,9 +214,6 @@ def main():
         crop_size,
         stage="val",
         task=task,
-    )
-    test_cpu_transforms = build_cpu_transforms(
-        crop_size, stage="test", task=task, test_time_resize=test_time_resize
     )
 
     model = build_model(config, task, n_modalities, n_classes, config.model.lora, True)
@@ -269,9 +226,8 @@ def main():
         num_workers=config.data.num_workers,
         train_transforms=train_cpu_transforms,
         val_transforms=val_cpu_transforms,
-        test_transforms=test_cpu_transforms,
+        test_transforms=val_cpu_transforms,
         val_drop_last=False,
-        resample_spacing=config.data.resample_spacing,
     )
 
     if config.enable_aug:
@@ -294,9 +250,9 @@ def main():
     results_path = get_results_path()
 
     metric = (
-        "auroc"
+        "f1"
         if task == "classification"
-        else "dice" if task == "segmentation" else "l2"
+        else "dice" if task == "segmentation" else "mae"
     )
 
     lr_monitor = LearningRateMonitor(logging_interval="step")

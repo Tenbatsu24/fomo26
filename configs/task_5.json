@@ -2,27 +2,24 @@
   "model": {
     "variant": "3d",
     "size": "small",
-    "lora": false,
-    "query_from": -1
+    "lora": false
   },
   "pretrained": {
-    "checkpoint": "small/296_518.ckpt"
+    "checkpoint": "small/296_518/last.ckpt"
   },
   "data": {
     "dataset_name": "CLS003_FOMO26_Polymicrogyria",
-    "crop_size": [224, 160, 224],
+    "crop_size": [256, 256, 192],
     "batch_size": 1,
-    "num_workers": 2,
-    "resample_spacing": "median",
-    "test_time_resize": [224, 160, 224]
+    "num_workers": 2
   },
-  "enable_aug": false,
+  "enable_aug": true,
   "optimizer": {
     "type": "AdamW",
     "params": {
       "lr": 0.002,
       "weight_decay": 0.05,
-      "patch_embed_lr_mult": 0.2,
+      "patch_embed_lr_mult": 0.1,
       "layerwise_decay": 0.9
     }
   },

@@ -47,7 +47,7 @@ class ViT3DAdaption(ViT3D):
         n_modalities,
         task: Literal["regression", "classification", "segmentation", "none"],
         classes: int,
-        pred_from: Optional[int] = None,
+        query_from: Optional[int] = None,
         num_q_tokens: Optional[int] = None,
         **kwargs,
     ):
@@ -57,74 +57,66 @@ class ViT3DAdaption(ViT3D):
         self.classes = classes
         self.n_modalities = n_modalities
 
-        if pred_from is None:
-            pred_from = -3
+        if query_from is None:
+            query_from = -3
 
-        self.pred_from = len(self.blocks) + pred_from if pred_from < 0 else pred_from
-
+        self.query_from = (
+            len(self.blocks) + query_from if query_from < 0 else query_from
+        )
         if n_modalities != 1:
             self.channel_adapter = ConvexModalityAdapter(self.n_modalities)
         else:
             self.channel_adapter = nn.Identity()
 
         if task in ["classification", "regression"]:
-            self.num_q_tokens = num_q_tokens if num_q_tokens is not None else 4
+            self.num_q_tokens = num_q_tokens if num_q_tokens is not None else 16
             self.query_tokens = nn.Parameter(
                 torch.zeros(1, self.num_q_tokens, self.embed_dim)
             )
             nn.init.normal_(self.query_tokens, std=1e-6)
             self.query_norm = nn.LayerNorm(self.embed_dim, eps=1e-6)
             self.attn_head = nn.Sequential(
-                AttentionPooling(self.embed_dim, num_classes=1, num_heads=1),
+                AttentionPooling(self.embed_dim, num_classes=1, num_heads=4),
                 nn.Linear(self.embed_dim, classes),
             )
-            if task == "regression":
-                nn.init.constant_(self.attn_head[-1].bias, 50.0)
-        elif task == "segmentation":
+        else:  # task == "segmentation":
             self.num_q_tokens = 0
             self.query_tokens = None
             self.head = ScaleDecode(self.patch_size, self.embed_dim, classes)
-        else:
-            self.num_q_tokens = 1
-            self.query_tokens = nn.Parameter(torch.zeros(1, 1, self.embed_dim))
-            self.query_norm = nn.LayerNorm(self.embed_dim, eps=1e-6)
+
+        self.init_weights()
 
     def forward(self, x, **kwargs):
         b, c, h, w, d = x.shape
         lp = tuple(l // p for l, p in zip([h, w, d], self.patch_size))
 
-        x = self.prepare_tokens(self.channel_adapter(x))
-
         preds = []
 
+        x = self.prepare_tokens(self.channel_adapter(x))
+
         for i, blk in enumerate(self.blocks):
-
-            if (self.query_tokens is not None) and (i == self.pred_from):
+            if (self.query_tokens is not None) and (i == self.query_from):
                 x = torch.cat((self.query_tokens.repeat(b, 1, 1), x), dim=1)
-
-            # logger.debug(f"Depth: {i=}, {x.shape}")
             x = blk(x)
 
-            if i >= self.pred_from:
-                if self.task in ["segmentation", "none"]:
-                    patch_tokens = self.norm(
-                        x[:, self.num_q_tokens + self.num_register_tokens + 1 :, :]
-                    )
-                    spatial = patch_tokens.unflatten(1, lp).permute(0, -1, 1, 2, 3)
-                    if self.task == "segmentation":
-                        preds.append(self.head(spatial))
-                    else:
-                        query_latent = self.query_norm(x[:, : self.num_q_tokens, :])[
-                            :, 0, :
-                        ]  # [B, q, d]
-                        preds.append((query_latent, spatial))
-                else:
-                    query_latent = self.query_norm(
-                        x[:, : self.num_q_tokens, :]
-                    )  # [B, q, d]
-                    res = self.attn_head(query_latent).squeeze(1)
-                    preds.append(res)
-        return preds
+            if self.task != "segmentation":
+                query_latent = self.query_norm(x[:, : self.num_q_tokens, :])  # [B, q, d]
+                pred = self.attn_head(query_latent).squeeze(1)
+                if self.task == "regression":
+                    pred = 100 * torch.sigmoid(pred)
+
+                preds.append(pred)
+
+        if self.task == "segmentation":
+            patch_tokens = self.norm(
+                x[:, self.num_q_tokens + self.num_register_tokens + 1 :, :]
+            )
+            spatial = patch_tokens.unflatten(1, lp).permute(0, -1, 1, 2, 3)
+            out = self.head(spatial)
+        else:
+            out = preds
+
+        return out
 
     def load_state_dict(
         self, state_dict: Mapping[str, Any], strict: bool = True, assign: bool = False

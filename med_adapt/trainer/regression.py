@@ -20,9 +20,10 @@ class RegressionTrainer(TemplateTrainer):
     ):
         config["loss"] = {"type": "huber"}
         config["metrics"] = {
-            "l2": {"type": "rmse"},
+            "rmse": {"type": "rmse"},
             "r2": {"type": "r2"},
             "mae": {"type": "mae"},
+            "corr": {"type": "corr"},
         }
         super().__init__(config, model, gpu_augmentations)
 

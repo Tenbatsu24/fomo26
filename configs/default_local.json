@@ -2,20 +2,18 @@
   "model": {
     "variant": "3d",
     "size": "small",
-    "lora": false,
-    "query_from": -3
+    "lora": false
   },
   "pretrained": {
     "checkpoint": "small/296_518/last.ckpt"
   },
   "data": {
-    "dataset_name": "SEG002_FOMO26_Infarct",
-    "crop_size": [128, 128, 128],
+    "dataset_name": "REGR002_FOMO26_BrainAge",
+    "crop_size": [196, 196, 96],
     "batch_size": 1,
-    "num_workers": 2,
-    "resample_spacing": "median"
+    "num_workers": 2
   },
-  "enable_aug": false,
+  "enable_aug": true,
   "optimizer": {
     "type": "AdamW",
     "params": {
@@ -27,7 +25,7 @@
   },
   "trainer": {
     "accelerator": "auto",
-    "accumulate_grad_batches": 1,
+    "accumulate_grad_batches": 4,
     "benchmark": false,
     "deterministic": false,
     "devices": "auto",
@@ -38,7 +36,7 @@
     "precision": "32-true",
     "strategy": "auto",
     "sync_batchnorm": false,
-    "val_check_interval": 10,
+    "val_check_interval": 40,
     "check_val_every_n_epoch": null,
     "log_every_n_steps": 1
   },
