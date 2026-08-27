@@ -309,7 +309,7 @@ def main():
         monitor=f"val/{metric}",
         auto_insert_metric_name=False,
         save_top_k=3,
-        mode="max" if task in ["classification", "segmentation"] else "min",
+        mode="max",
         save_last=False,
         enable_version_counter=False,
         save_weights_only=True,
