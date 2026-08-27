@@ -247,7 +247,7 @@ def main():
     results_path = get_results_path()
 
     metric = (
-        "auroc"
+        "acc"
         if task == "classification"
         else "dice" if task == "segmentation" else "mae"
     )
