@@ -37,7 +37,6 @@ from med_adapt.augs import (
 from med_adapt.trainer import (
     ClassificationTrainer,
     RegressionTrainer,
-    SegmentationTrainer,
 )
 
 torch.set_float32_matmul_precision("medium")
@@ -47,7 +46,6 @@ logger = get_logger(__name__)
 TRAINER_CLASSES = {
     "classification": ClassificationTrainer,
     "regression": RegressionTrainer,
-    "segmentation": SegmentationTrainer,
 }
 
 
@@ -108,7 +106,6 @@ def build_cpu_transforms(crop_size, stage, task):
             RandomRotate90SpatialPlane3D(label_key=label_key),
             RandomFlipSpatialDims3D(label_key=label_key),
             PadToShape3D(size=crop_size, label_key=label_key),
-            CenterCrop3D(size=crop_size, label_key=label_key),
             RandomResizedCrop3D(size=crop_size, label_key=label_key, scale=(0.5, 1.0)),
         ]
     else:  # stage == "val" or "test":

@@ -261,31 +261,22 @@ def main():
     seed = config.seed
 
     crop_size = config.data.crop_size
-    test_time_resize = config.data.test_time_resize
 
     if isinstance(crop_size, str) and crop_size == "median":
-        crop_size = round_up_to_multiple(dataset_class.median_resolution(), multiple=8)
+        crop_size = round_up_to_multiple(
+            dataset_class.median_resolution(), multiple=(8, 8, 8)
+        )
     else:
         crop_size = tuple(crop_size) if crop_size is not None else None
 
-    if isinstance(test_time_resize, str) and test_time_resize == "median":
-        test_time_resize = round_up_to_multiple(
-            dataset_class.median_resolution(), multiple=8
-        )
-    else:
-        test_time_resize = (
-            tuple(test_time_resize) if test_time_resize is not None else None
-        )
-
     config.data.crop_size = crop_size
-    config.data.test_time_resize = test_time_resize
 
-    eval_cpu_transforms = build_cpu_transforms(
-        crop_size, stage="test", task=task, test_time_resize=test_time_resize
-    )
+    eval_cpu_transforms = build_cpu_transforms(crop_size, stage="test", task=task)
 
     run_name = get_run_name(
-        dataset_name, config.model.size, config.model.variant, config.model.lora
+        dataset_name,
+        config.model.size,
+        config.model.variant,
     )
     results_path = get_results_path()
     out_dir = results_path / run_name / "eval_outputs"

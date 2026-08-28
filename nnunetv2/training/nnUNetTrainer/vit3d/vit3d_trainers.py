@@ -5,8 +5,8 @@ import torch
 
 from torch import nn, autocast
 
-from med_adapt.utils import get_models_path, mark_trainable
 from med_adapt.models.extended.volume import vitv2_a_3d_small
+from med_adapt.utils import get_models_path, mark_trainable, load_lora_state_dict
 
 from nnunetv2.training.nnUNetTrainer.variants.lr_schedule.nnUNetTrainer_warmup import (
     nnUNetTrainer_warmup,
@@ -37,6 +37,7 @@ class AbstractViT3DAdaption(nnUNetTrainer_warmup):
         self.weight_decay = 5e-2
         self.enable_deep_supervision = False
         self.ckpt_path = None
+        self.lora = False
         self.warmup_duration_whole_net = 10  # lin increase whole network
         self.num_epochs = 100
         self.num_iterations_per_epoch = 50
@@ -199,14 +200,21 @@ class AbstractViT3DAdaption(nnUNetTrainer_warmup):
                 for k, v in state_dict.items()
                 if k.startswith("model.")
             }
-
-        if to_ignore := self.network.do_not_load():
-            state_dict = {
-                k: v
-                for k, v in state_dict.items()
-                if all(ig not in k for ig in to_ignore)
-            }
-        missing, unexpected = self.network.load_state_dict(state_dict, strict=False)
+        if self.lora:
+            missing, unexpected = load_lora_state_dict(
+                self.network,
+                state_dict,
+                strict=False,
+                ignore_loading=self.network.do_not_load(),
+            )
+        else:
+            if to_ignore := self.network.do_not_load():
+                state_dict = {
+                    k: v
+                    for k, v in state_dict.items()
+                    if all(ig not in k for ig in to_ignore)
+                }
+            missing, unexpected = self.network.load_state_dict(state_dict, strict=False)
 
         print(
             f"[TemplateTrainer] Loaded checkpoint from {ckpt_path}. Missing: {missing}, Unexpected: {unexpected}",
@@ -226,6 +234,7 @@ class UNetViT3DSmallTrainer(AbstractViT3DAdaption):
         super().__init__(plans, configuration, fold, dataset_json, device)
 
         self.ckpt_path = "small/296_518/last.ckpt"
+        self.lora = True
 
     @staticmethod
     def build_network_architecture(
@@ -240,6 +249,7 @@ class UNetViT3DSmallTrainer(AbstractViT3DAdaption):
             n_modalities=num_input_channels,
             task="segmentation",
             classes=num_output_channels,
+            lora=True,
             # depth_last=False,
         )
 

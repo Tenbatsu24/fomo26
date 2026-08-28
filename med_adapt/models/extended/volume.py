@@ -5,7 +5,6 @@ import torch
 import torch.nn as nn
 
 from med_adapt.adapter import AttentionPooling
-from med_adapt.adapter.channel_adapter import ConvexModalityAdapter
 from med_adapt.models.base import ViT3D
 from med_adapt.registry import register_model
 from med_adapt.utils.config import get_logger
@@ -51,7 +50,7 @@ class ViT3DAdaption(ViT3D):
         num_q_tokens: Optional[int] = None,
         **kwargs,
     ):
-        super(ViT3DAdaption, self).__init__(**kwargs)
+        super(ViT3DAdaption, self).__init__(med_in_channels=n_modalities, **kwargs)
 
         self.task = task
         self.classes = classes
@@ -63,10 +62,6 @@ class ViT3DAdaption(ViT3D):
         self.query_from = (
             len(self.blocks) + query_from if query_from < 0 else query_from
         )
-        if n_modalities != 1:
-            self.channel_adapter = ConvexModalityAdapter(self.n_modalities)
-        else:
-            self.channel_adapter = nn.Identity()
 
         if task in ["classification", "regression"]:
             self.num_q_tokens = num_q_tokens if num_q_tokens is not None else 16
@@ -92,7 +87,7 @@ class ViT3DAdaption(ViT3D):
 
         preds = []
 
-        x = self.prepare_tokens(self.channel_adapter(x))
+        x = self.prepare_tokens(x)
 
         for i, blk in enumerate(self.blocks):
             if (self.query_tokens is not None) and (i == self.query_from):
@@ -100,7 +95,9 @@ class ViT3DAdaption(ViT3D):
             x = blk(x)
 
             if self.task != "segmentation":
-                query_latent = self.query_norm(x[:, : self.num_q_tokens, :])  # [B, q, d]
+                query_latent = self.query_norm(
+                    x[:, : self.num_q_tokens, :]
+                )  # [B, q, d]
                 pred = self.attn_head(query_latent).squeeze(1)
                 if self.task == "regression":
                     pred = 100 * torch.sigmoid(pred)
@@ -123,10 +120,54 @@ class ViT3DAdaption(ViT3D):
     ):
         state_dict = possibly_clean_lightning_sd(state_dict)
 
+        key = "patch_embed.proj.weight"
+        if key in state_dict:
+            pretrained_weight = state_dict[key]
+            current_weight = self.state_dict()[key]
+
+            pretrained_in_channels = pretrained_weight.shape[1]
+            target_in_channels = current_weight.shape[1]
+
+            if pretrained_in_channels != target_in_channels:
+                logger.info(
+                    f"Trying to repeat {pretrained_in_channels=} to {target_in_channels=}"
+                )
+                if pretrained_in_channels != 1:
+                    raise ValueError(
+                        f"Expected pretrained '{key}' to have 1 input channel to duplicate "
+                        f"across modalities, but got {pretrained_in_channels}."
+                    )
+                if target_in_channels != self.n_modalities:
+                    raise ValueError(
+                        f"Model's '{key}' in_channels ({target_in_channels}) does not match "
+                        f"self.n_modalities ({self.n_modalities})."
+                    )
+
+                # Duplicate the single-modality stem across the channel dim (dim=1).
+                repeat_shape = [1] * pretrained_weight.dim()
+                repeat_shape[1] = target_in_channels
+                duplicated_weight = pretrained_weight.repeat(*repeat_shape)
+
+                duplicated_weight = duplicated_weight / target_in_channels
+
+                state_dict[key] = duplicated_weight
+                logger.success(
+                    f"Repeated {pretrained_in_channels=} to {target_in_channels=}"
+                )
+
         return super().load_state_dict(state_dict, strict=strict, assign=assign)
 
     def additional_trainable(self):
-        return ["attn_head", "query_tokens", "query_norm", "head", "channel_adapter"]
+        default_ = [
+            "attn_head",
+            "query_tokens",
+            "query_norm",
+            "head",
+            "channel_adapter",
+        ]
+        if self.n_modalities > 1:
+            default_ += ["patch_embed"]
+        return default_
 
 
 @register_model("vitv2_a_3d_tiny")
@@ -151,7 +192,6 @@ def vitv2_a_3d_tiny(
             ),
         ),
         num_register_tokens=0,
-        med_in_channels=1,
         use_mask=False,
         use_patch_decode=False,
         **kwargs,
@@ -181,7 +221,6 @@ def vitv2_a_3d_small(
             ),
         ),
         num_register_tokens=0,
-        med_in_channels=1,
         use_mask=False,
         use_patch_decode=False,
         **kwargs,
@@ -211,7 +250,6 @@ def vitv2_a_3d_base(
             ),
         ),
         num_register_tokens=0,
-        med_in_channels=1,
         use_mask=False,
         use_patch_decode=False,
         **kwargs,
@@ -241,7 +279,6 @@ def vitv2_a_3d_large(
             ),
         ),
         num_register_tokens=0,
-        med_in_channels=1,
         use_mask=False,
         use_patch_decode=False,
         **kwargs,

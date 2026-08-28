@@ -429,6 +429,8 @@ class MedicalTaskDataset(IterableDataset):
         seed: int = 1234,
     ) -> Path:
         import shutil
+        import nibabel as nib
+        import numpy as np
 
         from nnunetv2.paths import nnUNet_raw, nnUNet_preprocessed
         from batchgenerators.utilities.file_and_folder_operations import (
@@ -440,13 +442,7 @@ class MedicalTaskDataset(IterableDataset):
             generate_dataset_json,
         )
 
-        if self.TASK_TYPE != "segmentation":
-            raise ValueError(
-                f"convert_to_nnunet_format is only supported for segmentation "
-                f"datasets, got TASK_TYPE={self.TASK_TYPE!r}"
-            )
-        else:
-            logger.info(f"Converting to nnunet format... {self.TASK_NAME}")
+        logger.info(f"Converting to nnunet format... {self.TASK_NAME}")
 
         task_name = task_name or self.TASK_NAME
         dataset_name = f"Dataset{dataset_id:03d}_{task_name}"
@@ -468,7 +464,29 @@ class MedicalTaskDataset(IterableDataset):
                     images_tr_dir / f"{subject}_{modality_index:04d}.nii.gz",
                 )
 
-            shutil.copy(sample["label"], labels_tr_dir / f"{subject}.nii.gz")
+            label_value = sample["label"]
+            label_dest = labels_tr_dir / f"{subject}.nii.gz"
+            label_txt_dest = labels_tr_dir / f"{subject}.txt"
+
+            if isinstance(label_value, (int, float)):
+                # It's a scalar value - create txt file with the value
+                with open(label_txt_dest, "w") as f:
+                    f.write(str(float(label_value)))
+
+                # Create a nii.gz file with mask of non-zero voxels from the first image
+                first_image_path = sample["image_paths"][0]
+                nib_img = nib.load(first_image_path)
+                img = nib_img.get_fdata()
+
+                # Create boolean mask where image is non-zero
+                mask_data = img != 0
+                mask_img = nib.Nifti1Image(
+                    mask_data.astype(np.uint8), nib_img.affine, nib_img.header
+                )
+                nib.save(mask_img, label_dest)
+            else:
+                # It's a path to .nii.gz file - copy it
+                shutil.copy(label_value, label_dest)
 
         channel_names = {i: modality for i, modality in enumerate(self.MODALITIES)}
 

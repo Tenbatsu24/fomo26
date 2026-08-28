@@ -5,6 +5,7 @@ from .volume import (
     vitv2_a_3d_base,
     vitv2_a_3d_large,
 )
+from .resencl import ResEncLAdaption
 
 __all__ = [
     "ViT3DAdaption",
@@ -12,4 +13,5 @@ __all__ = [
     "vitv2_a_3d_small",
     "vitv2_a_3d_base",
     "vitv2_a_3d_large",
+    "ResEncLAdaption",
 ]

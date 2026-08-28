@@ -17,6 +17,7 @@ from .extended import (
     vitv2_a_3d_small,
     vitv2_a_3d_base,
     vitv2_a_3d_large,
+    ResEncLAdaption,
 )
 
 __all__ = [
@@ -36,4 +37,5 @@ __all__ = [
     "vitv2_a_3d_small",
     "vitv2_a_3d_base",
     "vitv2_a_3d_large",
+    "ResEncLAdaption",
 ]
