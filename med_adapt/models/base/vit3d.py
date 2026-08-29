@@ -1,11 +1,3 @@
-"""3-D extension of the 2-D ViT base model.
-
-Inherits from :class:`ViTv2` and replaces the 2-D patch embedding with a
-3-D counterpart while keeping every transformer block unchanged.  The
-positional embedding is expanded from a 2-D grid into a cubic 3-D grid
-by taking the element-wise maximum across three axis-aligned orientations.
-"""
-
 from __future__ import annotations
 
 from functools import partial
@@ -22,6 +14,20 @@ from med_adapt.models.base.vit2d import ViTv2, init_weights_vit
 
 TUP3 = Tuple[int, int, int]
 INT_TUP3 = Union[int, TUP3]
+
+
+def set_requires_grad(module, value, original_values=None):
+    current_values = []
+
+    if original_values is not None:
+        for p, v in zip(module.parameters(), original_values):
+            p.requires_grad_(v)
+        return None
+    else:
+        for p in module.parameters():
+            current_values.append(p.requires_grad)
+            p.requires_grad_(value)
+    return current_values
 
 
 def _maybe_to_3_tuple(size, name="tuple"):
@@ -41,9 +47,9 @@ class ViT3D(ViTv2):
 
     def __init__(
         self,
-        volume_size,
-        volume_patch_size,
-        med_in_channels,
+        volume_size=(296, 296, 296),
+        volume_patch_size=(8, 8, 8),
+        med_in_channels=1,
         use_patch_decode=True,
         use_mask=True,
         *args,
@@ -60,8 +66,8 @@ class ViT3D(ViTv2):
                 "embed_layer": PatchEmbed3D,
             },
         )
-        self.use_patch_decode = use_patch_decode
         self.use_mask = use_mask
+        self.use_patch_decode = use_patch_decode
 
         if self.use_patch_decode:
             self.patch_decode = ScaleDecode(
@@ -70,8 +76,10 @@ class ViT3D(ViTv2):
 
         if self.use_mask:
             self.mask_token = torch.nn.Parameter(
-                torch.zeros(1, 1, self.embed_dim), requires_grad=True
+                torch.zeros(1, self.embed_dim), requires_grad=True
             )
+
+        self.init_weights()
 
     def interpolate_pos_encoding(self, x, h, w, d):
         previous_dtype = x.dtype
@@ -122,7 +130,9 @@ class ViT3D(ViTv2):
         x = self.patch_embed(x)
 
         if mask is not None and self.mask_token is not None:
-            x = torch.where(mask.unsqueeze(-1), self.mask_token.to(x.dtype), x)
+            x = torch.where(
+                mask.unsqueeze(-1), self.mask_token.to(x.dtype).unsqueeze(0), x
+            )
 
         x = torch.cat((self.cls_token.expand(x.shape[0], -1, -1), x), dim=1)
         x = x + self.interpolate_pos_encoding(x, h, w, d)
@@ -139,7 +149,7 @@ class ViT3D(ViTv2):
 
         return x
 
-    def forward(self, x, distill_from=-1, mask=None, **kwargs):
+    def forward(self, x, distill_from=-1, mask=None, return_dict=False, **kwargs):
         *_, h, w, d = x.shape
         lp = tuple(l // p for l, p in zip([h, w, d], self.patch_size))
 
@@ -164,9 +174,16 @@ class ViT3D(ViTv2):
                 outs.append((cls_token, patch_tokens))
 
         if self.use_patch_decode:
-            return outs, self.patch_decode(outs[-1][-1])
+            original_values = set_requires_grad(self.patch_decode, False)
+            recon = self.patch_decode(outs[-1][-1])
+            set_requires_grad(self.patch_decode, self.training, original_values)
+        else:
+            recon = None
 
-        return outs, None
+        if return_dict:
+            return {"latent": outs[-1][0], "patch_latent": outs[-1][1], "recon": recon}
+
+        return outs, recon
 
 
 def init_weights_vit_3d(module: nn.Module, name: str = "") -> None:
@@ -181,8 +198,8 @@ def init_weights_vit_3d(module: nn.Module, name: str = "") -> None:
 
 @register_model("vitv2_3d_tiny")
 def vitv2_3d_tiny(
-    volume_size: INT_TUP3 = 196,
-    volume_patch_size: INT_TUP3 = 14,
+    volume_size: INT_TUP3 = 296,
+    volume_patch_size: INT_TUP3 = 8,
     med_in_channels=1,
     num_register_tokens=0,
     **kwargs,
@@ -206,8 +223,8 @@ def vitv2_3d_tiny(
 
 @register_model("vitv2_3d_small")
 def vitv2_3d_small(
-    volume_size: INT_TUP3 = 196,
-    volume_patch_size: INT_TUP3 = 14,
+    volume_size: INT_TUP3 = 296,
+    volume_patch_size: INT_TUP3 = 8,
     med_in_channels=1,
     num_register_tokens=0,
     **kwargs,
@@ -231,8 +248,8 @@ def vitv2_3d_small(
 
 @register_model("vitv2_3d_base")
 def vitv2_3d_base(
-    volume_size: INT_TUP3 = 196,
-    volume_patch_size: INT_TUP3 = 14,
+    volume_size: INT_TUP3 = 296,
+    volume_patch_size: INT_TUP3 = 8,
     med_in_channels=1,
     num_register_tokens=0,
     **kwargs,
@@ -256,8 +273,8 @@ def vitv2_3d_base(
 
 @register_model("vitv2_3d_large")
 def vitv2_3d_large(
-    volume_size: INT_TUP3 = 196,
-    volume_patch_size: INT_TUP3 = 14,
+    volume_size: INT_TUP3 = 296,
+    volume_patch_size: INT_TUP3 = 8,
     med_in_channels=1,
     num_register_tokens=0,
     **kwargs,
@@ -280,22 +297,70 @@ def vitv2_3d_large(
 
 
 if __name__ == "__main__":
+    import math
+
+    def main():
+        spatial = (112, 112, 224)
+        ps = (8, 8, 8)
+        resolution = [s // p for s, p in zip(spatial, ps)]
+        dtype = torch.float16
+
+        model = (
+            vitv2_3d_small(volume_size=spatial, volume_patch_size=ps, med_in_channels=1)
+            .cuda()
+            .to(dtype)
+        )
+
+        # Test memory usage for different batch sizes
+        batch_sizes = [
+            1,
+        ]
+
+        for batch_size in batch_sizes:
+            torch.cuda.empty_cache()
+            torch.cuda.reset_peak_memory_stats()
+            # Fresh optimizer for each test
+            optimizer = torch.optim.AdamW(model.parameters())
+            # Dummy input and target
+            x = torch.randn(batch_size, 1, *spatial, device="cuda", dtype=dtype)
+            mask = (
+                torch.rand(batch_size, math.prod(resolution), device="cuda")
+                .gt(0.5)
+                .bool()
+            )
+            optimizer.zero_grad(set_to_none=True)
+            # Forward
+            output, recon = model(x, mask=mask, distill_from=-1)
+            # Dummy loss
+            loss = torch.stack([po for (_, po) in output], dim=0).mean() + recon.mean()
+            # Backward
+            loss.backward()
+            # Optimizer step
+            optimizer.step()
+            peak_memory = torch.cuda.max_memory_allocated() / (1024**3)
+            print(
+                f"Batch size {batch_size:2d}: " f"{peak_memory:.2f} GB peak allocated"
+            )
+            del x, output, loss, optimizer
+
+    main()
+
     # import thop
-
-    model = vitv2_3d_small(
-        volume_size=(196, 196, 28), volume_patch_size=(14, 14, 2), med_in_channels=3
-    ).cuda()
-
-    vol = torch.randn(1, 3, 196, 196, 28, device="cuda")
-    mask = torch.rand(1, 14, 14, 14, device="cuda").flatten(1) > 0.5
+    #
+    # model = vitv2_3d_small(
+    #     volume_size=(224, 224, 128), volume_patch_size=(14, 14, 8), med_in_channels=1
+    # ).cuda()
+    #
+    # vol = torch.randn(1, 3, 196, 196, 28, device="cuda")
+    # mask = torch.rand(1, 14, 14, 14, device="cuda").flatten(1) > 0.5
     # macs, params = thop.profile(model, (vol,))
     # print("Model FLOPs & Params:")
     # print("\t".join(thop.clever_format([macs, params], "%.3f")))
-
-    with torch.no_grad():
-        out, recon = model(vol, distill_from=-2, mask=mask)
-
-    for layer_out in out:
-        print([cls_patch.shape for cls_patch in layer_out])
-
-    print(recon.shape)
+    #
+    # with torch.no_grad():
+    #     out, recon = model(vol, distill_from=-2, mask=mask)
+    #
+    # for layer_out in out:
+    #     print([cls_patch.shape for cls_patch in layer_out])
+    #
+    # print(recon.shape)

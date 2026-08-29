@@ -6,12 +6,12 @@
 import math
 
 from functools import partial
-from typing import Sequence, Tuple, Union, Callable, Any
+from typing import Callable, Any
 
 import torch
 import torch.nn as nn
 import torch.utils.checkpoint
-from torch.nn import Parameter, Module
+from torch.nn import Parameter
 
 from torch.nn.init import trunc_normal_
 from torch.nn.functional import interpolate
@@ -273,7 +273,7 @@ class ViTv2(nn.Module):
 
         return x
 
-    def forward(self, x, distill_from=-1, **kwargs):
+    def forward(self, x, distill_from=-1, return_dict=False, **kwargs):
         *_, h, w = x.shape
         h_p, w_p = h // self.patch_size, w // self.patch_size
 
@@ -296,6 +296,9 @@ class ViTv2(nn.Module):
                 )
 
                 outs.append((cls_token, patch_tokens))
+
+        if return_dict:
+            return {"latent": outs[-1][0], "patch_latent": outs[-1][1]}
 
         return outs
 

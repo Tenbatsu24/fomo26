@@ -46,7 +46,6 @@ class TemplateTrainer(pl.LightningModule):
         config: ConfigDict,
         model: torch.nn.Module,
         gpu_augmentations=default_disable_aug,
-        normalisation: torch.nn.Module | None = None,
     ):
         super().__init__()
 
@@ -60,7 +59,6 @@ class TemplateTrainer(pl.LightningModule):
 
         self.config = config
         self.gpu_aug = gpu_augmentations
-        self.normalisation = normalisation
         self.criterion = self.make_criterion()
         self.num_classes: int = self.config.num_classes
 
@@ -178,8 +176,6 @@ class TemplateTrainer(pl.LightningModule):
     def preprocess_batch(self, batch, train: bool) -> tuple[Any, Any]:
         if train and self.gpu_aug is not None:
             batch = self.gpu_aug(batch)
-        if self.normalisation is not None:
-            batch = self.normalisation(batch)
 
         image, label = batch["image"], batch["label"]
         return image, label
@@ -246,36 +242,35 @@ class TemplateTrainer(pl.LightningModule):
             return loss
 
     def log_metrics(self, batch_metrics):
-        metric_dict = {
-            k: torch.mean(v) if len(v.shape) > 0 else v
-            for k, v in batch_metrics.items()
-            if not torch.all(torch.isnan(v))
-        }
-        self.log_dict(metric_dict, prog_bar=True, on_epoch=False, on_step=True)
-
-    # ------------------------------------------------------------------
-    # Training / validation / test steps
-    # ------------------------------------------------------------------
+        self.log_dict(
+            batch_metrics, prog_bar=True, on_epoch=False, on_step=True, logger=True
+        )
 
     def training_step(self, batch, batch_idx):
         loss, for_metrics = self.batch_to_loss(batch, train=True)
         loss = self.log_loss(
-            loss, prefix="train", prog_bar=True, on_epoch=False, on_step=True
+            loss,
+            prefix="train",
+            prog_bar=True,
+            on_epoch=False,
+            on_step=True,
         )
         if for_metrics:
             pred, gt = for_metrics
-            with torch.no_grad():
-                try:
-                    batch_metrics = self.train_metrics(pred, gt)
-                    self.log_metrics(batch_metrics)
-                except Exception as e:
-                    logger.error(
-                        f"Error computing training metrics {pred.shape=}, {gt.shape=}: {e}"
-                    )
+            self.train_metrics.update(pred.detach(), gt.detach())
+
         return loss["loss"] if isinstance(loss, dict) else loss
 
-    def on_train_epoch_end(self):
-        self.train_metrics.reset()
+    def on_before_optimizer_step(self, optimizer):
+        """
+        Called exactly once per optimizer step, after gradient accumulation.
+        """
+        try:
+            self.log_metrics(self.train_metrics.compute())
+        except Exception as e:
+            logger.error(f"Error computing training metrics: {e}")
+        finally:
+            self.train_metrics.reset()
 
     def validation_step(self, batch, batch_idx):
         loss, for_metrics = self.batch_to_loss(batch, train=False)

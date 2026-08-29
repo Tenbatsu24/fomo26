@@ -112,6 +112,7 @@ class _LazyPath:
 
 DATA_ROOT = _LazyPath("MED_ADAPT_DATA", "FOMO26_DATA")
 NNSSL_ROOT = _LazyPath("nnssl_preprocessed", "FOMO26_DATA")
+NNUNET_PROCESSED = _LazyPath("nnUNet_preprocessed", None)
 MODELS_ROOT = _LazyPath("MED_ADAPT_MODELS", "FOMO26_MODELS")
 RESULTS_ROOT = _LazyPath("MED_ADAPT_RESULTS", "FOMO26_RESULTS")
 CONFIGS_ROOT = _LazyPath("MED_ADAPT_CONFIGS", "FOMO26_CONFIGS")
@@ -136,6 +137,11 @@ def get_data_path() -> Path:
 def get_nnssl_preprocessed_path() -> Path:
     """Return the data root directory."""
     return NNSSL_ROOT._resolve()  # type: ignore
+
+
+def get_nnunet_processed_root() -> Path:
+    """Return the data root directory."""
+    return NNUNET_PROCESSED._resolve()  # type: ignore
 
 
 def get_models_path() -> Path:

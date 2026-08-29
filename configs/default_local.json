@@ -1,0 +1,54 @@
+{
+  "model": {
+    "lora": false
+  },
+  "pretrained": {
+    "checkpoint": "resencl/128/encoder_only.ckpt"
+  },
+  "data": {
+    "dataset_name": "Task1",
+    "crop_size": [128, 128, 128],
+    "batch_size": 1,
+    "num_workers": 2
+  },
+  "enable_aug": true,
+  "optimizer": {
+    "type": "SGD",
+    "params": {
+      "lr": 2e-3,
+      "weight_decay": 1e-4,
+      "nesterov": true,
+      "momentum": 0.9
+    }
+  },
+  "trainer": {
+    "accelerator": "auto",
+    "accumulate_grad_batches": 4,
+    "benchmark": false,
+    "deterministic": false,
+    "devices": "auto",
+    "gradient_clip_val": 0.5,
+    "max_steps": 100,
+    "num_nodes": 1,
+    "num_sanity_val_steps": 0,
+    "precision": "32-true",
+    "strategy": "auto",
+    "sync_batchnorm": false,
+    "val_check_interval": 40,
+    "check_val_every_n_epoch": null,
+    "log_every_n_steps": 1
+  },
+  "scheduler": [
+    [
+      "lr",
+      "CatSched(LinSched(1e-8, 2e-3), CosSched(2e-3, 1e-9), 0.15)"
+    ],
+    [
+      "weight_decay",
+      "ConstSched(1e-4)"
+    ]
+  ],
+  "loss": null,
+  "metrics": null,
+  "seed": 42
+}

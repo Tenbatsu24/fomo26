@@ -16,7 +16,9 @@ class PadToShape3D:
         image = sample["image"]
 
         H, W, D = image.shape[-3:]
-        target_H, target_W, target_D = self.size
+        target_H, target_W, target_D = [
+            t if t != -1 else s for t, s in zip(self.size, image.shape[-3:])
+        ]
 
         pad_h = max(0, target_H - H)
         pad_w = max(0, target_W - W)
@@ -34,7 +36,6 @@ class PadToShape3D:
         pad_d_before = pad_d // 2
         pad_d_after = pad_d - pad_d_before
 
-        # F.pad order: (..., D, W, H)
         pad = (
             pad_d_before,
             pad_d_after,
@@ -52,10 +53,10 @@ class PadToShape3D:
         )
 
         if self.label_key is not None and self.label_key in sample:
-            label = sample["label"]
+            label = sample[self.label_key]
 
             if isinstance(label, torch.Tensor) and label.shape[-3:] == (H, W, D):
-                out["label"] = F.pad(
+                out[self.label_key] = F.pad(
                     label,
                     pad,
                     mode="constant",
@@ -65,12 +66,61 @@ class PadToShape3D:
         return out
 
 
+class Resize3D:
+    """Resize the entire 3D volume to a fixed target shape on the CPU."""
+
+    def __init__(
+        self,
+        size,
+        data_key="image",
+        label_key="label",
+    ):
+        if size is None:
+            raise ValueError(
+                f"I can't resize if no size given, now can I? Passed {size=}"
+            )
+
+        self.data_key = data_key
+        self.label_key = label_key
+
+        self.target_size = tuple(size)
+
+    def __call__(self, data_dict):
+        image = data_dict[self.data_key]
+        target_size = [
+            t if t != -1 else s for t, s in zip(self.target_size, image.shape[1:])
+        ]
+        resized = torch.nn.functional.interpolate(
+            image.unsqueeze(0),
+            size=target_size,
+            mode="trilinear",
+            align_corners=False,
+        ).squeeze(0)
+        # resized: (C, target_D, target_H, target_W) -> back to (C, target_H, target_W, target_D)
+        data_dict[self.data_key] = resized
+
+        if data_dict.get(self.label_key) is not None:
+            label = data_dict[self.label_key]
+            # label shape: (H, W, D) -> (N, C, D, H, W) for interpolate
+            # Cast to float for interpolate, then back to original dtype.
+            label_float = label.to(dtype=torch.float32)
+            resized_label = torch.nn.functional.interpolate(
+                label_float[None, None, ...],
+                size=target_size,
+                mode="nearest",
+            )[0, 0, ...]
+            # resized_label: (target_D, target_H, target_W) -> (target_H, target_W, target_D)
+            data_dict[self.label_key] = resized_label.to(label.dtype)
+
+        return data_dict
+
+
 class RandomResizedCrop3D:
     def __init__(
         self,
         size,
-        scale=(0.8, 1.2),
-        ratio=(3 / 4, 4 / 3),
+        scale=(0.5, 1.0),
+        ratio=(0.9, 1.1),
         label_key=None,
     ):
         self.size = tuple(size)
@@ -87,9 +137,9 @@ class RandomResizedCrop3D:
             r_hw = random.uniform(*self.ratio)
             r_hd = random.uniform(*self.ratio)
 
-            h = round((target_volume * r_hw * r_hd) ** (1 / 3))
-            w = round((target_volume / r_hw) ** (1 / 3))
-            d = round((target_volume / r_hd) ** (1 / 3))
+            h = round((target_volume * r_hw * r_hd) ** (1.0 / 3.0))
+            w = round(h / r_hw)
+            d = round(h / r_hd)
 
             if 0 < h <= H and 0 < w <= W and 0 < d <= D:
                 top = random.randint(0, H - h)
@@ -98,18 +148,8 @@ class RandomResizedCrop3D:
 
                 return top, left, depth, h, w, d
 
-        # fallback center crop
-        scale = min(H / H, W / W, D / D)
-
-        h = min(H, int(round(H * scale)))
-        w = min(W, int(round(W * scale)))
-        d = min(D, int(round(D * scale)))
-
-        top = (H - h) // 2
-        left = (W - w) // 2
-        depth = (D - d) // 2
-
-        return top, left, depth, h, w, d
+        # Fallback: use the whole volume
+        return 0, 0, 0, H, W, D
 
     def _crop_resize_image(self, x, params):
         top, left, depth, h, w, d = params
@@ -127,9 +167,12 @@ class RandomResizedCrop3D:
         if not had_batch:
             cropped = cropped.unsqueeze(0)
 
+        target_size = [
+            t if t != -1 else s for t, s in zip(self.size, cropped.shape[2:])
+        ]
         resized = F.interpolate(
             cropped,
-            size=self.size,
+            size=target_size,
             mode="trilinear",
             align_corners=False,
         )
@@ -155,9 +198,12 @@ class RandomResizedCrop3D:
         if not had_batch:
             cropped = cropped.unsqueeze(0)
 
+        target_size = [
+            t if t != -1 else s for t, s in zip(self.size, cropped.shape[2:])
+        ]
         resized = F.interpolate(
             cropped.float(),
-            size=self.size,
+            size=target_size,
             mode="nearest",
         )
 
@@ -181,11 +227,10 @@ class RandomResizedCrop3D:
         )
 
         if self.label_key is not None and self.label_key in sample:
-            label = sample["label"]
+            label = sample[self.label_key]
 
-            # spatial 3D label
             if isinstance(label, torch.Tensor) and label.shape[-3:] == (H, W, D):
-                out["label"] = self._crop_resize_label_3d(
+                out[self.label_key] = self._crop_resize_label_3d(
                     label,
                     params,
                 )
@@ -235,15 +280,132 @@ class CenterCrop3D:
         ]
 
         if self.label_key is not None and self.label_key in sample:
-            label = sample["label"]
+            label = sample[self.label_key]
 
             if isinstance(label, torch.Tensor) and label.shape[-3:] == (H, W, D):
-                out["label"] = label[
+                out[self.label_key] = label[
                     ...,
                     :,
                     top : top + crop_H,
                     left : left + crop_W,
                     depth : depth + crop_D,
                 ]
+
+        return out
+
+
+class RandomSwapSpatialDims3D:
+
+    def __init__(self, p=0.5, label_key=None):
+        self.p = p
+        self.label_key = label_key
+
+        # indices of H,W,D relative to the last 3 dims
+        self._perms = [
+            (0, 1, 2),
+            (0, 2, 1),
+            (1, 0, 2),
+            (1, 2, 0),
+            (2, 0, 1),
+            (2, 1, 0),
+        ]
+
+    def _apply(self, x, perm):
+        ndim = x.ndim
+
+        spatial = [ndim - 3 + p for p in perm]
+
+        order = list(range(ndim - 3)) + spatial
+
+        return x.permute(*order)
+
+    def __call__(self, sample):
+        if random.random() >= self.p:
+            return sample
+
+        image = sample["image"]
+
+        H, W, D = image.shape[-3:]
+
+        perm = random.choice(self._perms)
+
+        out = dict(sample)
+
+        out["image"] = self._apply(image, perm)
+
+        if self.label_key is not None and self.label_key in sample:
+            label = sample[self.label_key]
+
+            if isinstance(label, torch.Tensor) and label.shape[-3:] == (H, W, D):
+                out[self.label_key] = self._apply(label, perm)
+
+        return out
+
+
+class RandomFlipSpatialDims3D:
+
+    def __init__(self, p=0.5, label_key=None):
+        self.p = p
+        self.label_key = label_key
+
+    def _apply(self, x, dims):
+        return torch.flip(x, dims=dims)
+
+    def __call__(self, sample):
+        image = sample["image"]
+
+        # spatial dims are always the last 3 dims
+        spatial_dims = [-3, -2, -1]
+
+        flip_dims = [d for d in spatial_dims if random.random() < self.p]
+
+        if not flip_dims:
+            return sample
+
+        H, W, D = image.shape[-3:]
+
+        out = dict(sample)
+
+        out["image"] = self._apply(image, flip_dims)
+
+        if self.label_key is not None and self.label_key in sample:
+            label = sample[self.label_key]
+
+            if isinstance(label, torch.Tensor) and label.shape[-3:] == (H, W, D):
+                out[self.label_key] = self._apply(label, flip_dims)
+
+        return out
+
+
+class RandomRotate90SpatialPlane3D:
+
+    def __init__(self, p=0.5, label_key=None):
+        self.p = p
+        self.label_key = label_key
+
+    def _apply(self, x, k):
+        # Rotate only in the H-W plane.
+        # Spatial dims are always the last 3 dims: (..., H, W, D)
+        return torch.rot90(x, k=k, dims=(-3, -2))
+
+    def __call__(self, sample):
+        image = sample["image"]
+
+        if random.random() >= self.p:
+            return sample
+
+        k = random.choice((1, 2, 3))
+
+        H, W, D = image.shape[-3:]
+
+        out = dict(sample)
+
+        out["image"] = self._apply(image, k)
+
+        if self.label_key is not None and self.label_key in sample:
+            label = sample[self.label_key]
+
+            if isinstance(label, torch.Tensor) and label.shape[-3:] == (H, W, D):
+                out[self.label_key] = self._apply(label, k)
 
         return out

@@ -4,19 +4,24 @@ from pathlib import Path
 from typing import Sequence, Union, Any
 
 import torch
+import numpy as np
 import lightning as pl
 import torch.nn.functional as F
+import torch.distributed as dist
 
 from einops import rearrange
-from loguru import logger
 from lightning import Callback
 from ml_collections import ConfigDict
 
+from med_adapt.layers import RunningNorm
 from med_adapt.utils import get_models_path
+from med_adapt.utils.config import get_logger
 from med_adapt.augs import default_disable_aug
 from med_adapt.utils.masking import generate_masks
 from med_adapt.optim import init_optims_from_config
 from med_adapt.scheduling import Schedule, Scheduler
+
+logger = get_logger(__name__)
 
 
 def apply_lr_multiplier(loc, step, sched):
@@ -25,6 +30,41 @@ def apply_lr_multiplier(loc, step, sched):
 
 def apply_wd_multiplier(loc, step, sched):
     return loc.get("wd_multiplier", 1.0) * sched(step)
+
+
+def get_per_sample_range(low, high, *, batch_size):
+    world_size = dist.get_world_size() if dist.is_initialized() else 1
+    rank = dist.get_rank() if dist.is_initialized() else 0
+
+    global_batch = batch_size * world_size
+
+    global_values = np.linspace(
+        low,
+        high,
+        global_batch,
+    )
+
+    start = rank * batch_size
+    end = start + batch_size
+
+    return global_values[[start, end - 1]]
+
+
+def cosine_loss_to_angle_safe(loss):
+    loss = torch.nan_to_num(
+        loss,
+        nan=4.0,  # corresponds to cos=-1
+        posinf=4.0,
+        neginf=0.0,  # corresponds to cos=1
+    )
+
+    cos_theta = torch.clamp(1.0 - loss / 2.0, -1.0, 1.0)
+    return torch.acos(cos_theta)
+
+
+def cosine_loss_to_angle_deg(loss):
+    theta = cosine_loss_to_angle_safe(loss)
+    return torch.rad2deg(theta)
 
 
 class PretrainTrainer(pl.LightningModule):
@@ -43,26 +83,31 @@ class PretrainTrainer(pl.LightningModule):
         self.gpu_aug = gpu_augmentations
         self.normalisation = normalisation
         self.distill_from = self.config.distill_from
+        self.nan_counter = 0
 
         self.model = model
         self.teacher_model = teacher_model
+        self.running_norm = RunningNorm(
+            self.teacher_model.embed_dim, channel_dim=1, momentum=0.01, eps=1e-6
+        )
 
         self._load_pretrained()
 
         self.optims, self.scheduler = self.make_opt_sched()
 
-        # Will be moved to the correct device in on_train_start via self.device
+        self.teacher_resize = self.config.data.get("teacher_resize", None)
+        logger.info(f"Using teacher resize: {self.teacher_resize}")
+
         self.register_buffer(
             "imagenet_mean",
-            torch.tensor([0.485, 0.456, 0.406]).view(1, 3, 1, 1),
+            torch.tensor([0.485, 0.456, 0.406]).view(1, 3, 1, 1, 1),
         )
         self.register_buffer(
             "imagenet_std",
-            torch.tensor([0.229, 0.224, 0.225]).view(1, 3, 1, 1),
+            torch.tensor([0.229, 0.224, 0.225]).view(1, 3, 1, 1, 1),
         )
 
         self.mask_enabled = self.config.model.use_mask
-
         # Mask generation hyper-parameters (safe defaults when absent)
         mask_cfg = getattr(self.config.model, "mask", None) or {}
         self.mask_prob = mask_cfg.get("mask_prob", 0.75)
@@ -120,121 +165,118 @@ class PretrainTrainer(pl.LightningModule):
                         Schedule.parse(sched),
                         apply_wd_multiplier,
                     )
+            if key == "rm_momentum":
+                scheduler.add(
+                    self.running_norm,
+                    "momentum",
+                    Schedule.parse(sched),
+                    helpful_name=key,
+                )
         return [opt], scheduler
 
-    def preprocess_batch(self, batch, train: bool) -> tuple[Any, Any]:
-        if train and self.gpu_aug is not None:
-            batch = self.gpu_aug(batch)
-
-        if self.normalisation is not None:
-            batch = self.normalisation(batch)
-
-        image = batch["image"]
-        return image
-
-    def _teacher_forward(self, volume: torch.Tensor, chunk_size: int = 8):
+    def _teacher_forward(self, volume: torch.Tensor, chunk_size=16):
         b, c, h, w, d = volume.shape
         layer_outputs = (
             None  # list-of-lists: [layer][chunk] -> (cls_chunk, spatial_chunk)
         )
 
+        ch_min = volume.amin(dim=(1, 2, 3, 4), keepdim=True)
+        ch_max = volume.amax(dim=(1, 2, 3, 4), keepdim=True)
+
+        denom = ch_max - ch_min
+        denom = torch.where(denom < 0.1, 1.0, denom)
+
+        vol_norm = (volume - ch_min) / denom
+        vol_norm = (vol_norm - self.imagenet_mean) / self.imagenet_std
+
         for d_start in range(0, d, chunk_size):
             d_end = min(d_start + chunk_size, d)
-            vol_chunk = volume[..., d_start:d_end]  # b c h w d_chunk
-            d_chunk = d_end - d_start
 
-            vol_flat = rearrange(vol_chunk, "b c h w d -> (b d) c h w")
-            ch_min = vol_flat.min(dim=1, keepdim=True).values
-            ch_max = vol_flat.max(dim=1, keepdim=True).values
-            denom = ch_max - ch_min
-            denom[denom == 0] = 1.0
-            vol_norm = (vol_flat - ch_min) / denom
-            vol_norm = (vol_norm - self.imagenet_mean) / self.imagenet_std
+            slice_vol = rearrange(
+                vol_norm[..., d_start:d_end], "b c h w d -> (b d) c h w"
+            )
+            if self.teacher_resize is not None:
+                slice_vol = F.interpolate(
+                    slice_vol,
+                    size=self.teacher_resize,
+                    mode="bicubic",
+                    align_corners=False,
+                )
 
-            intermediates = self.teacher_model(vol_norm, distill_from=self.distill_from)
+            intermediates = self.teacher_model(
+                slice_vol,
+                distill_from=self.distill_from,
+            )
 
             if layer_outputs is None:
                 layer_outputs = [[] for _ in intermediates]
 
             for layer_idx, (cls_token, patch_token) in enumerate(intermediates):
-                # b=b, d=d_chunk pins the unflatten to THIS chunk's own (b d) ordering,
-                # so samples from different chunks never get interleaved.
-                cls_token = rearrange(cls_token, "(b d) c -> b c d", b=b, d=d_chunk)
+                cls_token = rearrange(cls_token, "(b d) c -> b c d", b=b)
                 spatial = rearrange(
-                    patch_token, "(b d) c h_p w_p -> b c h_p w_p d", b=b, d=d_chunk
+                    patch_token, "(b d) c h_p w_p -> b c h_p w_p d", b=b
                 )
                 layer_outputs[layer_idx].append((cls_token, spatial))
 
         outputs = []
+
         for chunks in layer_outputs:
             cls_chunks, spatial_chunks = zip(*chunks)
-            # chunks were produced in increasing d_start order, so concatenating
-            # along dim=-1 reconstructs the original depth ordering exactly.
-            cls_full = torch.cat(cls_chunks, dim=-1).mean(dim=-1)
-            spatial_full = torch.cat(spatial_chunks, dim=-1)
-            outputs.append((cls_full, spatial_full))
+            spatial_full = self.running_norm(
+                torch.cat(spatial_chunks, dim=-1)
+            )  # [b c h_p w_p d]
+
+            outputs.append((spatial_full.detach(),))
 
         return outputs
 
     def _distill_loss(
         self, teacher_out, student_out, recon=None, volume=None, mask=None
     ):
-        cls_total, token_total = 0.0, 0.0
+        token_cos_total, token_l2_total = 0.0, 0.0
         n = len(teacher_out)
 
-        for (t_c, t_p), (s_c, s_p, *_) in zip(teacher_out, student_out):
-            t_interp = F.interpolate(
-                t_p,
-                size=(s_p.shape[2], s_p.shape[3], s_p.shape[4]),
-                mode="trilinear",
-                align_corners=False,
+        for zip_idx, ((*_, t_patch), (*_, s_patch)) in enumerate(
+            zip(teacher_out, student_out)
+        ):
+            t_patch_interp = F.interpolate(
+                t_patch,
+                size=(s_patch.shape[2], s_patch.shape[3], s_patch.shape[4]),
+                mode="area",
             )
-            cls_total += -torch.cosine_similarity(t_c, s_c, dim=1).mean()
-            token_total += (
-                -torch.cosine_similarity(t_interp, s_p, dim=1)
-                .mean(dim=(1, 2, 3))
-                .mean()
-            )
+
+            if zip_idx == n - 1:
+                final_t_patch_interp = t_patch_interp
+
+            token_l2 = (t_patch_interp - s_patch).square().mean()
+            token_l2_total += token_l2
+
+            t_pn = F.normalize(t_patch_interp, p=2, eps=1e-6, dim=1)
+            s_pn = F.normalize(s_patch, p=2, eps=1e-6, dim=1)
+            cos_map = (t_pn * s_pn).sum(dim=1)  # (B, D', H', W')
+            token_cos_total += 2 - 2 * cos_map.mean(dim=(1, 2, 3)).mean()
+
+        mean_token_cos = token_cos_total / n
+        mean_token_l2 = token_l2_total / n
 
         loss_dict = {
-            "loss": (2 - 2 * ((0.2 * cls_total + 0.8 * token_total) / n)),
-            "cls_cos": 2 - 2 * (cls_total / n),
-            "token_cos": 2 - 2 * (token_total / n),
+            "loss": mean_token_l2,
+            "token_cos": mean_token_cos,
+            "token_l2": mean_token_l2,
+            "angle": cosine_loss_to_angle_deg(mean_token_cos),
         }
 
-        if recon is not None and mask is not None:
-            # Upsample patch-resolution mask to image resolution via
-            # repeat_interleave, then invert so that 1 marks dropped
-            # (masked) voxels where the huber loss should be computed.
-            batch_size = volume.shape[0]
-            ph = volume.shape[2] // self.model.patch_size[0]
-            pw = volume.shape[3] // self.model.patch_size[1]
-            pd = volume.shape[4] // self.model.patch_size[2]
-            # (batch_size, 1, ph, pw, pd) → repeat → (batch_size, 1, H, W, D)
-            mask_3d = mask.view(batch_size, 1, ph, pw, pd).float()
-            mask_up = torch.repeat_interleave(mask_3d, self.model.patch_size[0], dim=2)
-            mask_up = torch.repeat_interleave(mask_up, self.model.patch_size[1], dim=3)
-            mask_up = torch.repeat_interleave(mask_up, self.model.patch_size[2], dim=4)
-            # loss_mask == 1 on dropped (masked) regions
-            loss_mask = 1.0 - mask_up
-            masked_recon = recon * loss_mask
-            masked_volume = volume * loss_mask
-            # Per-element huber, then normalise per batch element by its
-            # own masked voxel count, sum across the batch, and average.
-            huber_per_elem = F.huber_loss(masked_recon, masked_volume, reduction="none")
-            num_masked = loss_mask.sum(dim=(1, 2, 3, 4)).clamp(min=1)
-            huber_per_elem = huber_per_elem.sum(dim=(1, 2, 3, 4)) / num_masked
-            # Average only over samples that actually had masking applied
-            n_masked_samples = (num_masked > 1).sum().clamp(min=1)
-            huber = huber_per_elem.sum() / n_masked_samples
+        if recon is not None:
+            t_recon = self.model.patch_decode(final_t_patch_interp.detach())
+            t_huber = F.huber_loss(t_recon, volume, reduction="mean")
+        else:
+            t_huber = None
 
-            loss_dict["loss"] += huber
-            loss_dict["huber"] = huber
-        elif recon is not None:
+        if recon is not None:
             huber = F.huber_loss(recon, volume, reduction="mean")
-
-            loss_dict["loss"] += huber
+            loss_dict["loss"] += 0.5 * (huber + t_huber)
             loss_dict["huber"] = huber
+            loss_dict["t_huber"] = t_huber
 
         return loss_dict
 
@@ -247,11 +289,16 @@ class PretrainTrainer(pl.LightningModule):
         ph = H // self.model.patch_size[0]
         pw = W // self.model.patch_size[1]
         pd = D // self.model.patch_size[2]
+
+        per_sample_range = get_per_sample_range(
+            *self.per_sample_range, batch_size=batch_size
+        )
+
         masks = generate_masks(
             patch_resolution=(ph, pw, pd),
             number_of_samples=batch_size,
             mask_prob=self.mask_prob,
-            per_sample_range=self.per_sample_range,
+            per_sample_range=per_sample_range,  # [0.1, 0.5]
         )
         return masks.to(self.device)
 
@@ -267,10 +314,11 @@ class PretrainTrainer(pl.LightningModule):
         return self._spatial_shape
 
     def batch_to_loss(self, batch, train=False):
-        with torch.no_grad():
-            teacher_outs = self._teacher_forward(batch["image"])
+        was_problem = False
 
-        image = self.preprocess_batch(batch, train)
+        image = batch["image"]
+        with torch.no_grad():
+            teacher_outs = self._teacher_forward(image)
 
         mask = None
         if self.mask_enabled and train:
@@ -278,9 +326,37 @@ class PretrainTrainer(pl.LightningModule):
 
         student_outs, recon = self(image, distill_from=self.distill_from, mask=mask)
 
-        return self._distill_loss(teacher_outs, student_outs, recon, image, mask=mask)
+        loss_dict = self._distill_loss(
+            teacher_outs, student_outs, recon, image, mask=mask
+        )
+
+        if torch.any(~torch.isfinite(loss_dict["loss"])):
+            # if running on a single device, this will skip the step and training can proceed.
+            loss_dict = {"loss": None}
+            was_problem = True
+            self.nan_counter += 1
+
+        if was_problem:
+            logger.info("=" * 25)
+            logger.info()
+            logger.info(f"{self.nan_counter=}")
+            logger.info(batch["index"])
+            logger.info()
+            logger.info("=" * 25)
+
+        return loss_dict
 
     def on_fit_start(self) -> None:
+        self.teacher_model.eval()
+        for p in self.teacher_model.parameters():
+            p.requires_grad_(False)
+
+    def on_train_start(self) -> None:
+        self.teacher_model.eval()
+        for p in self.teacher_model.parameters():
+            p.requires_grad_(False)
+
+    def on_validation_epoch_start(self) -> None:
         self.teacher_model.eval()
         for p in self.teacher_model.parameters():
             p.requires_grad_(False)
@@ -288,14 +364,19 @@ class PretrainTrainer(pl.LightningModule):
     def log_loss(self, loss, prefix, prog_bar, on_epoch, on_step):
         if isinstance(loss, dict):
             for key, value in loss.items():
-                self.log(
-                    f"{prefix}/{key}",
-                    value.detach(),
-                    prog_bar=prog_bar,
-                    on_epoch=on_epoch,
-                    on_step=on_step,
-                    sync_dist=on_epoch,
-                )
+                if (
+                    isinstance(value, torch.Tensor)
+                    or isinstance(value, float)
+                    or isinstance(value, int)
+                ):
+                    self.log(
+                        f"{prefix}/{key}",
+                        value,
+                        prog_bar=prog_bar,
+                        on_epoch=on_epoch,
+                        on_step=on_step,
+                        sync_dist=on_epoch,
+                    )
             return loss["loss"]
         else:
             self.log(
@@ -310,20 +391,38 @@ class PretrainTrainer(pl.LightningModule):
 
     def training_step(self, batch, batch_idx):
         loss = self.batch_to_loss(batch, train=True)
-        loss = self.log_loss(
+        return self.log_loss(
             loss, prefix="train", prog_bar=True, on_epoch=False, on_step=True
         )
-        return loss["loss"] if isinstance(loss, dict) else loss
 
     def validation_step(self, batch, batch_idx):
         loss = self.batch_to_loss(batch, train=False)
-        loss = self.log_loss(
+        return self.log_loss(
             loss, prefix="val", prog_bar=True, on_epoch=True, on_step=False
         )
-        return loss
 
     def configure_optimizers(self):
         return self.optims, []
 
     def configure_callbacks(self) -> Union[Sequence[Callback], Callback]:
         return [self.scheduler]
+
+    # check for ddp training. make sure there are no `"no gradient parameters"` as that is not allowed in ddp.
+    # def on_after_backward(self):
+    #     no_grad = []
+    #     zero_grad = []
+    #
+    #     for name, param in self.named_parameters():
+    #         if not param.requires_grad:
+    #             continue
+    #
+    #         if param.grad is None:
+    #             no_grad.append(name)
+    #         elif torch.count_nonzero(param.grad) == 0:
+    #             zero_grad.append(name)
+    #
+    #     if no_grad:
+    #         print("No gradient:", no_grad)
+    #
+    #     if zero_grad:
+    #         print("Zero gradient:", zero_grad)

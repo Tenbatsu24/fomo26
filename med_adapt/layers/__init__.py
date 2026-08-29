@@ -4,6 +4,7 @@ from .rms_norm import RMSNorm
 from .drop_path import DropPath
 from .layer_scale import LayerScale
 from .scale_block import ScaleDecode
+from .running_norm import RunningNorm
 from .patch_embed import PatchEmbed, PatchEmbed3D
 from .swiglu_ffn import SwiGLUFFN, SwiGLUFFNFused
 from .attention import (
@@ -16,6 +17,7 @@ from .attention import (
 __all__ = [
     "RMSNorm",
     "DropPath",
+    "RunningNorm",
     "Block",
     "Mlp",
     "PatchEmbed",
