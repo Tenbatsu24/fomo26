@@ -37,7 +37,9 @@ def find_latest_version_dir(fold_dir: Path) -> Optional[Path]:
     return version_dirs[-1] if version_dirs else None
 
 
-def find_checkpoint_in_version(version_dir: Path, metric: Optional[str]) -> Optional[Path]:
+def find_checkpoint_in_version(
+    version_dir: Path, metric: Optional[str]
+) -> Optional[Path]:
     """Pick a checkpoint file inside a version dir.
 
     metric=None -> "last.ckpt". Otherwise, parse filenames of the form
@@ -50,7 +52,9 @@ def find_checkpoint_in_version(version_dir: Path, metric: Optional[str]) -> Opti
         return ckpt_path if ckpt_path.exists() else None
 
     if metric not in METRIC_MODES:
-        raise ValueError(f"Unknown metric={metric!r}; expected one of {list(METRIC_MODES)} or None")
+        raise ValueError(
+            f"Unknown metric={metric!r}; expected one of {list(METRIC_MODES)} or None"
+        )
 
     candidates = []
     for p in version_dir.glob("*.ckpt"):
@@ -91,7 +95,9 @@ def load_model_from_checkpoint(model, ckpt_path: Path, device: torch.device):
 
     if any(k.startswith("model.") for k in state_dict):
         state_dict = {
-            k[len("model."):]: v for k, v in state_dict.items() if k.startswith("model.")
+            k[len("model.") :]: v
+            for k, v in state_dict.items()
+            if k.startswith("model.")
         }
 
     missing, unexpected = model.load_state_dict(state_dict, strict=False)
@@ -160,7 +166,9 @@ def compute_classification_metrics(preds: np.ndarray, targets: np.ndarray) -> di
 
     metrics = {
         "accuracy": accuracy_score(targets, pred_labels),
-        "precision": precision_score(targets, pred_labels, average="macro", zero_division=0),
+        "precision": precision_score(
+            targets, pred_labels, average="macro", zero_division=0
+        ),
         "recall": recall_score(targets, pred_labels, average="macro", zero_division=0),
         "f1": f1_score(targets, pred_labels, average="macro", zero_division=0),
     }
@@ -168,7 +176,9 @@ def compute_classification_metrics(preds: np.ndarray, targets: np.ndarray) -> di
     try:
         n_classes = preds.shape[1]
         if n_classes > 2:
-            metrics["auroc"] = roc_auc_score(targets, preds, multi_class="ovr", average="macro")
+            metrics["auroc"] = roc_auc_score(
+                targets, preds, multi_class="ovr", average="macro"
+            )
         else:
             metrics["auroc"] = roc_auc_score(targets, preds[:, 1])
     except ValueError as e:
@@ -238,7 +248,9 @@ def main():
     task = dataset_class.TASK_TYPE
 
     if task not in SUPPORTED_TASKS:
-        raise ValueError(f"task={task} is not supported by this script (only {SUPPORTED_TASKS}).")
+        raise ValueError(
+            f"task={task} is not supported by this script (only {SUPPORTED_TASKS})."
+        )
 
     n_modalities = dataset_class.NUM_MODALITIES
     n_classes = dataset_class.NUM_CLASSES
@@ -257,9 +269,13 @@ def main():
         crop_size = tuple(crop_size) if crop_size is not None else None
 
     if isinstance(test_time_resize, str) and test_time_resize == "median":
-        test_time_resize = round_up_to_multiple(dataset_class.median_resolution(), multiple=8)
+        test_time_resize = round_up_to_multiple(
+            dataset_class.median_resolution(), multiple=8
+        )
     else:
-        test_time_resize = tuple(test_time_resize) if test_time_resize is not None else None
+        test_time_resize = (
+            tuple(test_time_resize) if test_time_resize is not None else None
+        )
 
     config.data.crop_size = crop_size
     config.data.test_time_resize = test_time_resize
@@ -268,7 +284,9 @@ def main():
         crop_size, stage="test", task=task, test_time_resize=test_time_resize
     )
 
-    run_name = get_run_name(dataset_name, config.model.size, config.model.variant, config.model.lora)
+    run_name = get_run_name(
+        dataset_name, config.model.size, config.model.variant, config.model.lora
+    )
     results_path = get_results_path()
     out_dir = results_path / run_name / "eval_outputs"
 
@@ -303,12 +321,16 @@ def main():
             resample_spacing=config.data.resample_spacing,
         )
 
-        model = build_model(config, task, n_modalities, n_classes, config.model.lora, True)
+        model = build_model(
+            config, task, n_modalities, n_classes, config.model.lora, True
+        )
         model = load_model_from_checkpoint(model, ckpt_path, device)
 
         outputs = run_inference(model, val_dl, task, device)
         save_fold_outputs(out_dir, fold, outputs)
-        logger.info(f"[fold {fold}] Saved outputs -> {out_dir / f'fold_{fold}_outputs.npz'}")
+        logger.info(
+            f"[fold {fold}] Saved outputs -> {out_dir / f'fold_{fold}_outputs.npz'}"
+        )
 
         del model
         if device.type == "cuda":
@@ -321,7 +343,9 @@ def main():
     for fold in folds:
         data = load_fold_outputs(out_dir, fold)
         if data is None:
-            logger.warning(f"[fold {fold}] No cached outputs found; excluding from pooled metrics.")
+            logger.warning(
+                f"[fold {fold}] No cached outputs found; excluding from pooled metrics."
+            )
             continue
         all_preds.append(data["preds"])
         all_targets.append(data["targets"])
@@ -335,7 +359,9 @@ def main():
 
     metrics = METRIC_FNS[task](pooled_preds, pooled_targets)
 
-    logger.info(f"Pooled metrics over {len(pooled_targets)} samples across folds {folds}:")
+    logger.info(
+        f"Pooled metrics over {len(pooled_targets)} samples across folds {folds}:"
+    )
     for name, value in metrics.items():
         logger.info(f"  {name}: {value:.4f}")
 
