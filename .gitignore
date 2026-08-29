@@ -302,5 +302,6 @@ checkpoints/
 results/
 preprocessed/
 understand/
+nnUNet/
 
 *.ckpt
