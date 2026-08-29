@@ -66,7 +66,7 @@ def check_monitor_top_k(self, trainer, current=None):
 ModelCheckpoint.check_monitor_top_k = check_monitor_top_k
 
 
-def build_cpu_transforms(crop_size, stage, task):
+def build_cpu_transforms(crop_size, stage):
     """Build CPU-side crop/pad/resize transforms."""
     if stage == "train":
         tforms = [
@@ -82,13 +82,14 @@ def build_cpu_transforms(crop_size, stage, task):
     return transforms.Compose(tforms)
 
 
-def build_model(n_modalities, n_classes):
+def build_model(n_modalities, task, n_classes):
     registry_key = "resencl"
 
     builder = STORE.get("models", registry_key)
 
     return builder(
         n_modalities=n_modalities,
+        task=task,
         classes=n_classes,
     )
 
@@ -165,15 +166,13 @@ def main():
     train_cpu_transforms = build_cpu_transforms(
         crop_size,
         stage="train",
-        task=task,
     )
     val_cpu_transforms = build_cpu_transforms(
         crop_size,
         stage="val",
-        task=task,
     )
 
-    model = build_model(n_modalities, n_classes)
+    model = build_model(n_modalities, task, n_classes)
     train_dl, val_dl, test_dl = build_dataloaders(
         dataset_class=dataset_class,
         fold=fold,
@@ -203,9 +202,9 @@ def main():
     results_path = get_results_path()
 
     metric = (
-        "f1"
+        "auroc"
         if task == "classification"
-        else "dice" if task == "segmentation" else "mae"
+        else "mae"
     )
 
     lr_monitor = LearningRateMonitor(logging_interval="step")
