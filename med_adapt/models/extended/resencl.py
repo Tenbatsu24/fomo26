@@ -1,4 +1,4 @@
-from typing import Any, Mapping
+from typing import Any, Mapping, Literal
 
 import torch
 
@@ -21,22 +21,25 @@ class ResEncLAdaption(torch.nn.Module):
     def __init__(
         self,
         n_modalities: int,
+        task: Literal["none", "classification", "regression"],
         classes: int,
         patch_size: tuple[int, int, int] = (128, 128, 128),
     ):
         super().__init__()
 
+        self.task = task
         self.embed_dim = 320
         self.n_modalities = n_modalities
         self.patch_size = patch_size  # for e.g. (128, 128, 128)
 
         self.encoder = make_residual_encoder_l(n_modalities)
 
-        self.latent_norm = torch.nn.LayerNorm(self.embed_dim, eps=1e-6)
-        self.attn_head = torch.nn.Sequential(
-            AttentionPooling(self.embed_dim, num_classes=1, num_heads=4),
-            torch.nn.Linear(self.embed_dim, classes),
-        )
+        if self.task in ["classification", "regression"]:
+            self.latent_norm = torch.nn.LayerNorm(self.embed_dim, eps=1e-6)
+            self.attn_head = torch.nn.Sequential(
+                AttentionPooling(self.embed_dim, num_classes=1, num_heads=4),
+                torch.nn.Linear(self.embed_dim, classes),
+            )
 
     def forward(self, x, max_batch_size: int = 2):
         tiles = self._extract_tiles(
@@ -60,12 +63,18 @@ class ResEncLAdaption(torch.nn.Module):
         # Concatenate all latents from chunks
         z = torch.cat(all_latents, dim=0)  # Shape: (num_tiles, N, C)
 
-        z_norm = self.latent_norm(z)  # Shape: (num_tiles, N, C)
-        logits = self.attn_head(rearrange(z_norm, "b n c -> 1 (b n) c")).squeeze(
-            1
-        )  # Shape: (num_tiles, classes)
+        if self.task == "none":
+            return z.mean(dim=(1, 2), keepdim=False)
+        else:
+            z_norm = self.latent_norm(z)  # Shape: (num_tiles, N, C)
+            logits = self.attn_head(rearrange(z_norm, "b n c -> 1 (b n) c")).squeeze(
+                1
+            )  # Shape: (num_tiles, classes)
+            if self.task == "regression":
+                return 100 * torch.sigmoid(logits)
+            else:
+                return logits
 
-        return logits
 
     def _compute_tile_starts(
         self, volume_size: tuple[int, int, int]
