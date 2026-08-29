@@ -275,8 +275,8 @@ class Task3(NNDataset):
     NUM_CLASSES = 1
 
 
-@register_dataset("Task4")
-class Task4(NNDataset):
+@register_dataset("Task5")
+class Task5(NNDataset):
     TASK_NAME: str = "Dataset005_PolymicrogyriaClassification"
     PLANS_NAME: str = "Spacing__1.00_1.00_1.00___Norm__Z"
 
