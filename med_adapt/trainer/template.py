@@ -72,7 +72,7 @@ class TemplateTrainer(pl.LightningModule):
         self.model = model
         self._load_pretrained()
 
-        mark_trainable(self.model, additional_keys=self.model.additional_trainable())
+        # mark_trainable(self.model, additional_keys=self.model.additional_trainable())
 
         self.optims, self.scheduler = self.make_opt_sched()
 

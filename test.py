@@ -14,7 +14,7 @@ from med_adapt.utils.config import get_config, get_logger
 from med_adapt.utils.paths import get_results_path, get_data_path
 from med_adapt.datasets import build_dataloaders
 
-from main import build_cpu_transforms, build_model, round_up_to_multiple
+from main import build_cpu_transforms, build_model
 
 logger = get_logger(__name__)
 
@@ -22,7 +22,7 @@ N_FOLDS = 5
 SUPPORTED_TASKS = ("classification", "regression")
 
 # "best" direction for each trackable metric; used when --metric is given.
-METRIC_MODES = {"loss": "min", "auroc": "max", "corr": "max"}
+METRIC_MODES = {"loss": "min", "auroc": "max", "mae": "min"}
 _CKPT_METRIC_RE = re.compile(r"^step=(\d+)-val_(\w+)=([0-9.]+)\.ckpt$")
 
 
@@ -262,21 +262,16 @@ def main():
 
     crop_size = config.data.crop_size
 
-    if isinstance(crop_size, str) and crop_size == "median":
-        crop_size = round_up_to_multiple(
-            dataset_class.median_resolution(), multiple=(8, 8, 8)
-        )
-    else:
-        crop_size = tuple(crop_size) if crop_size is not None else None
+    crop_size = tuple(crop_size) if crop_size is not None else None
 
     config.data.crop_size = crop_size
 
-    eval_cpu_transforms = build_cpu_transforms(crop_size, stage="test", task=task)
+    eval_cpu_transforms = build_cpu_transforms(crop_size, stage="test")
 
     run_name = get_run_name(
         dataset_name,
-        config.model.size,
-        config.model.variant,
+        "large",
+        "resenc",
     )
     results_path = get_results_path()
     out_dir = results_path / run_name / "eval_outputs"
@@ -300,21 +295,14 @@ def main():
 
         _, val_dl, _ = build_dataloaders(
             dataset_class=dataset_class,
-            root=data_root,
             fold=fold,
             seed=seed,
-            batch_size=config.data.batch_size,
             num_workers=config.data.num_workers,
-            train_transforms=eval_cpu_transforms,
-            val_transforms=eval_cpu_transforms,
-            test_transforms=eval_cpu_transforms,
             val_drop_last=False,
-            resample_spacing=config.data.resample_spacing,
+            train_transform=None,
+            val_transform=eval_cpu_transforms,
         )
-
-        model = build_model(
-            config, task, n_modalities, n_classes, config.model.lora, True
-        )
+        model = build_model(n_modalities, task, n_classes)
         model = load_model_from_checkpoint(model, ckpt_path, device)
 
         outputs = run_inference(model, val_dl, task, device)

@@ -1,26 +1,24 @@
 {
   "model": {
-    "variant": "3d",
-    "size": "small",
     "lora": false
   },
   "pretrained": {
-    "checkpoint": "small/296_518/last.ckpt"
+    "checkpoint": "resencl/128/encoder_only.ckpt"
   },
   "data": {
-    "dataset_name": "CLS003_FOMO26_Polymicrogyria",
-    "crop_size": [256, 256, 192],
+    "dataset_name": "Task5",
+    "crop_size": [128, 128, 128],
     "batch_size": 1,
     "num_workers": 2
   },
   "enable_aug": true,
   "optimizer": {
-    "type": "AdamW",
+    "type": "SGD",
     "params": {
-      "lr": 0.002,
-      "weight_decay": 0.05,
-      "patch_embed_lr_mult": 0.1,
-      "layerwise_decay": 0.9
+      "lr": 2e-3,
+      "weight_decay": 1e-4,
+      "nesterov": true,
+      "momentum": 0.9
     }
   },
   "trainer": {
@@ -43,11 +41,11 @@
   "scheduler": [
     [
       "lr",
-      "CatSched(LinSched(1e-8, 2e-3), CosSched(2e-3, 1e-9), 0.25)"
+      "CatSched(LinSched(1e-8, 2e-3), CosSched(2e-3, 1e-9), 0.15)"
     ],
     [
       "weight_decay",
-      "ConstSched(0.05)"
+      "ConstSched(1e-4)"
     ]
   ],
   "loss": null,

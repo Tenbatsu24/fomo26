@@ -58,9 +58,9 @@ class SklearnMetricWrapper(Metric, ABC):
         """Update state with predictions and targets."""
         # Convert to numpy and store
         if isinstance(preds, torch.Tensor):
-            preds = preds.detach().cpu()
+            preds = preds.detach().cpu().float()
         if isinstance(targets, torch.Tensor):
-            targets = targets.detach().cpu()
+            targets = targets.detach().cpu().float()
 
         self.preds.append(preds)
         self.targets.append(targets)
