@@ -33,7 +33,7 @@ class AbstractViT3DAdaption(nnUNetTrainer_warmup):
         device: torch.device = torch.device("cuda"),
     ):
         super().__init__(plans, configuration, fold, dataset_json, device)
-        self.initial_lr = 4e-3
+        self.initial_lr = 3e-4
         self.weight_decay = 5e-2
         self.enable_deep_supervision = False
         self.ckpt_path = None
