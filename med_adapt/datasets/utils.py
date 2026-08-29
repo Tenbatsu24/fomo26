@@ -1,66 +1,48 @@
 from __future__ import annotations
 
-from typing import Union, Optional, Literal, Tuple
+from typing import Union
 
 from torch.utils.data import DataLoader
 
-from med_adapt.datasets.data import MedicalTaskDataset
+from med_adapt.datasets.nnunet import NNDataset
 
 
 def build_dataloaders(
-    dataset_class: type[MedicalTaskDataset],
-    root: str,
+    dataset_class: type[NNDataset],
     fold: int,
     seed: int,
-    batch_size: int,
     num_workers: int,
     num_val_workers: Union[int, None] = None,
-    train_transforms=None,
-    val_transforms=None,
-    test_transforms=None,
     n_splits: int = 5,
     val_drop_last: bool = False,
-    resize_to: Optional[Union[Literal["median"], Tuple[int, int, int]]] = "median",
+    train_transform=None,
+    val_transform=None,
 ) -> tuple[DataLoader, DataLoader, DataLoader]:
 
     if num_val_workers is None:
         num_val_workers = min(num_workers, 2)
 
     train_ds = dataset_class(
-        root=root,
         split="train",
         fold=fold,
         seed=seed,
         n_splits=n_splits,
-        transform=train_transforms,
-        resize_to=resize_to,
+        transform=train_transform,
     )
     val_ds = dataset_class(
-        root=root,
-        split="val",
-        fold=fold,
-        seed=seed,
-        n_splits=n_splits,
-        transform=val_transforms,
-        resize_to=resize_to,
+        split="val", fold=fold, seed=seed, n_splits=n_splits, transform=val_transform
     )
     test_ds = dataset_class(
-        root=root,
-        split="val",
-        fold=fold,
-        seed=seed,
-        n_splits=n_splits,
-        transform=test_transforms,
-        resize_to=resize_to,
+        split="val", fold=fold, seed=seed, n_splits=n_splits, transform=val_transform
     )
 
     train_dl = DataLoader(
         train_ds,
         num_workers=num_workers,
-        batch_size=batch_size,
+        batch_size=1,
         pin_memory=True,
         persistent_workers=(num_workers > 0),
-        drop_last=True,
+        drop_last=False,
     )
     val_dl = DataLoader(
         val_ds,

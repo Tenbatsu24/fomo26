@@ -53,6 +53,7 @@ class NNDataset(IterableDataset):
         fold: Optional[int] = None,
         seed: Optional[int] = None,
         n_splits: int = 5,
+        transform=None,
     ):
         self.root = Path(root) / self.TASK_NAME
         self.split = split
@@ -82,6 +83,8 @@ class NNDataset(IterableDataset):
             f"{self.TASK_NAME} | selected samples: {len(self.samples)}",
         )
 
+        self.transform = transform
+
     def __getitem__(
         self,
         index: int,
@@ -89,7 +92,7 @@ class NNDataset(IterableDataset):
         sample = self.samples[index]
 
         target = sample["label"]
-        image_path = sample["imagee"]
+        image_path = sample["image"]
 
         if self.TASK_TYPE == "classification":
             target = torch.tensor(
@@ -104,12 +107,14 @@ class NNDataset(IterableDataset):
         else:
             raise ValueError(f"Unknown task type: {self.TASK_TYPE}")
 
-        image = blosc2.open(image_path)[:]
+        image = torch.from_numpy(blosc2.open(image_path)[:]).to(torch.float32)
 
         sample_dict = {
             "image": image,
             "label": target,
         }
+        if self.transform is not None:
+            sample_dict = self.transform(sample_dict)
 
         return sample_dict
 
@@ -248,7 +253,7 @@ class NNDataset(IterableDataset):
         raise RuntimeError("Unable to create requested fold.")
 
 
-@register_dataset("CLS002_FOMO26_Infarct")
+@register_dataset("Task1")
 class Task1(NNDataset):
     TASK_NAME: str = "Dataset003_InfarctClassification"
     PLANS_NAME: str = "Spacing__1.00_1.00_1.00___Norm__Z_Z_Z"
@@ -259,7 +264,7 @@ class Task1(NNDataset):
     NUM_CLASSES = 2
 
 
-@register_dataset("REGR002_FOMO26_BrainAge")
+@register_dataset("Task3")
 class Task3(NNDataset):
     TASK_NAME: str = "Dataset004_BrainAgeRegression"
     PLANS_NAME: str = "Spacing__1.00_1.00_1.00___Norm__Z"
@@ -270,7 +275,7 @@ class Task3(NNDataset):
     NUM_CLASSES = 1
 
 
-@register_dataset("CLS003_FOMO26_Polymicrogyria")
+@register_dataset("Task4")
 class Task4(NNDataset):
     TASK_NAME: str = "Dataset005_PolymicrogyriaClassification"
     PLANS_NAME: str = "Spacing__1.00_1.00_1.00___Norm__Z"

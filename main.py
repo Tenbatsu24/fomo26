@@ -1,15 +1,7 @@
-"""Main entry point for med_adapt training.
-
-Usage:
-    python main.py --config configs/default.json --fold 0
-    python main.py --config configs/default.json --fold 0 --test
-"""
-
 import argparse
 
 from pathlib import Path
 
-import numpy as np
 import torch
 import lightning as pl
 
@@ -17,27 +9,23 @@ from torchvision import transforms
 from lightning.pytorch.loggers import CSVLogger
 from lightning.pytorch.callbacks import ModelCheckpoint, LearningRateMonitor
 
-from med_adapt.registry import STORE
-from med_adapt.utils.naming import get_run_name
-from med_adapt.datasets import build_dataloaders
-from med_adapt.utils.config import get_config, get_logger
-from med_adapt.utils.paths import get_results_path, get_data_path
-from med_adapt.augs.default import (
+from med_adapt.augs import (
     default_enable_aug,
     default_disable_aug,
-)
-from med_adapt.augs import (
-    Resize3D,
     PadToShape3D,
     RandomResizedCrop3D,
     RandomFlipSpatialDims3D,
     RandomRotate90SpatialPlane3D,
-    CenterCrop3D,
 )
+from med_adapt.datasets import build_dataloaders
+from med_adapt.registry import STORE
 from med_adapt.trainer import (
     ClassificationTrainer,
     RegressionTrainer,
 )
+from med_adapt.utils.config import get_config, get_logger
+from med_adapt.utils.naming import get_run_name
+from med_adapt.utils.paths import get_results_path
 
 torch.set_float32_matmul_precision("medium")
 
@@ -49,13 +37,6 @@ TRAINER_CLASSES = {
 }
 
 
-def round_up_to_multiple(values, multiple: tuple[int, int, int] = (8, 8, 8)):
-    return tuple(
-        int(np.ceil(v / m) * m) if m != 1 else v for v, m in zip(values, multiple)
-    )
-
-
-# code injection
 def check_monitor_top_k(self, trainer, current=None):
     if current is None:
         return False
@@ -85,51 +66,30 @@ def check_monitor_top_k(self, trainer, current=None):
 ModelCheckpoint.check_monitor_top_k = check_monitor_top_k
 
 
-def get_task_from_dataset_name(dataset_name: str) -> str:
-    """Infer task type from dataset name prefix."""
-    prefix = dataset_name[:3].upper()
-    if prefix == "CLS":
-        return "classification"
-    elif prefix == "REG":
-        return "regression"
-    elif prefix == "SEG":
-        return "segmentation"
-    else:
-        raise ValueError(f"Cannot infer task from dataset name: {dataset_name}")
-
-
 def build_cpu_transforms(crop_size, stage, task):
     """Build CPU-side crop/pad/resize transforms."""
-    label_key = "label" if task == "segmentation" else None
     if stage == "train":
         tforms = [
-            RandomRotate90SpatialPlane3D(label_key=label_key),
-            RandomFlipSpatialDims3D(label_key=label_key),
-            PadToShape3D(size=crop_size, label_key=label_key),
-            RandomResizedCrop3D(size=crop_size, label_key=label_key, scale=(0.5, 1.0)),
+            PadToShape3D(size=crop_size),
+            # RandomResizedCrop3D(size=crop_size, scale=(0.5, 1.0)),
+            RandomRotate90SpatialPlane3D(),
+            RandomFlipSpatialDims3D(),
         ]
     else:  # stage == "val" or "test":
         tforms = [
-            PadToShape3D(size=crop_size, label_key=label_key),
-            CenterCrop3D(size=crop_size, label_key=label_key),
+            PadToShape3D(size=crop_size),
         ]
     return transforms.Compose(tforms)
 
 
-def build_model(config, task, n_modalities, n_classes, lora, mea):
-    """Build model from registry using config parameters."""
-    size = config.model.size
-
-    registry_key = f"vitv2_a_3d_{size}"
+def build_model(n_modalities, n_classes):
+    registry_key = "resencl"
 
     builder = STORE.get("models", registry_key)
 
     return builder(
         n_modalities=n_modalities,
-        task=task,
         classes=n_classes,
-        lora=lora,
-        mea=mea,
     )
 
 
@@ -188,14 +148,14 @@ def main():
 
     dataset_name = config.data.dataset_name
     dataset_class = STORE.get("datasets", dataset_name)
-    task = dataset_class.TASK_TYPE
 
     n_modalities = dataset_class.NUM_MODALITIES
     n_classes = dataset_class.NUM_CLASSES
+    task = dataset_class.TASK_TYPE
+
     config["num_classes"] = n_classes
     config["n_modalities"] = n_modalities
 
-    data_root = str(get_data_path())
     fold = args.fold
     seed = config.seed
 
@@ -213,18 +173,15 @@ def main():
         task=task,
     )
 
-    model = build_model(config, task, n_modalities, n_classes, config.model.lora, True)
+    model = build_model(n_modalities, n_classes)
     train_dl, val_dl, test_dl = build_dataloaders(
         dataset_class=dataset_class,
-        root=data_root,
         fold=fold,
         seed=seed,
-        batch_size=config.data.batch_size,
         num_workers=config.data.num_workers,
-        train_transforms=train_cpu_transforms,
-        val_transforms=val_cpu_transforms,
-        test_transforms=val_cpu_transforms,
         val_drop_last=False,
+        train_transform=train_cpu_transforms,
+        val_transform=val_cpu_transforms,
     )
 
     if config.enable_aug:
@@ -240,8 +197,8 @@ def main():
 
     run_name = get_run_name(
         dataset_name,
-        config.model.size,
-        config.model.variant,
+        "large",
+        "resenc",
     )
     results_path = get_results_path()
 
