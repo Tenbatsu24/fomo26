@@ -113,14 +113,19 @@ class ResEncLAdaption(torch.nn.Module):
         """Extract all tiles from the input volume."""
         tile_starts = self._compute_tile_starts(x.shape[2:])  # D, H, W
 
+        # During training, randomly select up to 4 tile starts
+        if self.training and len(tile_starts) > 4:
+            indices = torch.randperm(len(tile_starts))[:4]
+            tile_starts = [tile_starts[i] for i in indices]
+
         tiles = []
         for d, h, w in tile_starts:
             tile = x[
                 :,
                 :,
-                d : d + self.patch_size[0],
-                h : h + self.patch_size[1],
-                w : w + self.patch_size[2],
+                d: d + self.patch_size[0],
+                h: h + self.patch_size[1],
+                w: w + self.patch_size[2],
             ]
             tiles.append(tile)
 
