@@ -304,4 +304,10 @@ preprocessed/
 understand/
 nnUNet/
 
+Dockerfile
 *.ckpt
+*.sif
+*.pth
+*.nii.gz
+*.txt
+*.npy

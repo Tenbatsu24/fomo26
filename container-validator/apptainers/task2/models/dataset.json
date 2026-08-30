@@ -1,0 +1,204 @@
+{
+    "channel_names": {
+        "0": "dwi",
+        "1": "flair",
+        "2": "swi"
+    },
+    "labels": {
+        "background": 0,
+        "meningioma": 1
+    },
+    "numTraining": 23,
+    "file_ending": ".nii.gz",
+    "licence": "see https://www.synapse.org/Synapse:syn64895667/wiki/",
+    "converted_by": "Please enter your name, especially when sharing datasets with others in a common infrastructure!",
+    "name": "Dataset602_FOMO60k2",
+    "reference": "https://www.synapse.org/Synapse:syn64895667/wiki/",
+    "description": "This dataset does not copy the data into nnunet format and just links to existing data. The dataset can only be used from one machine because the paths in the dataset.json are hard coded",
+    "dataset": {
+        "sub_6": {
+            "label": "/deepstore/datasets/mia/HealthyAI/FOMO2025/fomo-task2/labels/sub_6/ses_1/seg.nii.gz",
+            "images": [
+                "/deepstore/datasets/mia/HealthyAI/FOMO2025/fomo-task2/preprocessed/sub_6/ses_1/dwi_b1000.nii.gz",
+                "/deepstore/datasets/mia/HealthyAI/FOMO2025/fomo-task2/preprocessed/sub_6/ses_1/flair.nii.gz",
+                "/deepstore/datasets/mia/HealthyAI/FOMO2025/fomo-task2/preprocessed/sub_6/ses_1/t2s.nii.gz"
+            ]
+        },
+        "sub_22": {
+            "label": "/deepstore/datasets/mia/HealthyAI/FOMO2025/fomo-task2/labels/sub_22/ses_1/seg.nii.gz",
+            "images": [
+                "/deepstore/datasets/mia/HealthyAI/FOMO2025/fomo-task2/preprocessed/sub_22/ses_1/dwi_b1000.nii.gz",
+                "/deepstore/datasets/mia/HealthyAI/FOMO2025/fomo-task2/preprocessed/sub_22/ses_1/flair.nii.gz",
+                "/deepstore/datasets/mia/HealthyAI/FOMO2025/fomo-task2/preprocessed/sub_22/ses_1/swi.nii.gz"
+            ]
+        },
+        "sub_10": {
+            "label": "/deepstore/datasets/mia/HealthyAI/FOMO2025/fomo-task2/labels/sub_10/ses_1/seg.nii.gz",
+            "images": [
+                "/deepstore/datasets/mia/HealthyAI/FOMO2025/fomo-task2/preprocessed/sub_10/ses_1/dwi_b1000.nii.gz",
+                "/deepstore/datasets/mia/HealthyAI/FOMO2025/fomo-task2/preprocessed/sub_10/ses_1/flair.nii.gz",
+                "/deepstore/datasets/mia/HealthyAI/FOMO2025/fomo-task2/preprocessed/sub_10/ses_1/t2s.nii.gz"
+            ]
+        },
+        "sub_17": {
+            "label": "/deepstore/datasets/mia/HealthyAI/FOMO2025/fomo-task2/labels/sub_17/ses_1/seg.nii.gz",
+            "images": [
+                "/deepstore/datasets/mia/HealthyAI/FOMO2025/fomo-task2/preprocessed/sub_17/ses_1/dwi_b1000.nii.gz",
+                "/deepstore/datasets/mia/HealthyAI/FOMO2025/fomo-task2/preprocessed/sub_17/ses_1/flair.nii.gz",
+                "/deepstore/datasets/mia/HealthyAI/FOMO2025/fomo-task2/preprocessed/sub_17/ses_1/swi.nii.gz"
+            ]
+        },
+        "sub_1": {
+            "label": "/deepstore/datasets/mia/HealthyAI/FOMO2025/fomo-task2/labels/sub_1/ses_1/seg.nii.gz",
+            "images": [
+                "/deepstore/datasets/mia/HealthyAI/FOMO2025/fomo-task2/preprocessed/sub_1/ses_1/dwi_b1000.nii.gz",
+                "/deepstore/datasets/mia/HealthyAI/FOMO2025/fomo-task2/preprocessed/sub_1/ses_1/flair.nii.gz",
+                "/deepstore/datasets/mia/HealthyAI/FOMO2025/fomo-task2/preprocessed/sub_1/ses_1/swi.nii.gz"
+            ]
+        },
+        "sub_5": {
+            "label": "/deepstore/datasets/mia/HealthyAI/FOMO2025/fomo-task2/labels/sub_5/ses_1/seg.nii.gz",
+            "images": [
+                "/deepstore/datasets/mia/HealthyAI/FOMO2025/fomo-task2/preprocessed/sub_5/ses_1/dwi_b1000.nii.gz",
+                "/deepstore/datasets/mia/HealthyAI/FOMO2025/fomo-task2/preprocessed/sub_5/ses_1/flair.nii.gz",
+                "/deepstore/datasets/mia/HealthyAI/FOMO2025/fomo-task2/preprocessed/sub_5/ses_1/t2s.nii.gz"
+            ]
+        },
+        "sub_21": {
+            "label": "/deepstore/datasets/mia/HealthyAI/FOMO2025/fomo-task2/labels/sub_21/ses_1/seg.nii.gz",
+            "images": [
+                "/deepstore/datasets/mia/HealthyAI/FOMO2025/fomo-task2/preprocessed/sub_21/ses_1/dwi_b1000.nii.gz",
+                "/deepstore/datasets/mia/HealthyAI/FOMO2025/fomo-task2/preprocessed/sub_21/ses_1/flair.nii.gz",
+                "/deepstore/datasets/mia/HealthyAI/FOMO2025/fomo-task2/preprocessed/sub_21/ses_1/swi.nii.gz"
+            ]
+        },
+        "sub_13": {
+            "label": "/deepstore/datasets/mia/HealthyAI/FOMO2025/fomo-task2/labels/sub_13/ses_1/seg.nii.gz",
+            "images": [
+                "/deepstore/datasets/mia/HealthyAI/FOMO2025/fomo-task2/preprocessed/sub_13/ses_1/dwi_b1000.nii.gz",
+                "/deepstore/datasets/mia/HealthyAI/FOMO2025/fomo-task2/preprocessed/sub_13/ses_1/flair.nii.gz",
+                "/deepstore/datasets/mia/HealthyAI/FOMO2025/fomo-task2/preprocessed/sub_13/ses_1/swi.nii.gz"
+            ]
+        },
+        "sub_19": {
+            "label": "/deepstore/datasets/mia/HealthyAI/FOMO2025/fomo-task2/labels/sub_19/ses_1/seg.nii.gz",
+            "images": [
+                "/deepstore/datasets/mia/HealthyAI/FOMO2025/fomo-task2/preprocessed/sub_19/ses_1/dwi_b1000.nii.gz",
+                "/deepstore/datasets/mia/HealthyAI/FOMO2025/fomo-task2/preprocessed/sub_19/ses_1/flair.nii.gz",
+                "/deepstore/datasets/mia/HealthyAI/FOMO2025/fomo-task2/preprocessed/sub_19/ses_1/swi.nii.gz"
+            ]
+        },
+        "sub_14": {
+            "label": "/deepstore/datasets/mia/HealthyAI/FOMO2025/fomo-task2/labels/sub_14/ses_1/seg.nii.gz",
+            "images": [
+                "/deepstore/datasets/mia/HealthyAI/FOMO2025/fomo-task2/preprocessed/sub_14/ses_1/dwi_b1000.nii.gz",
+                "/deepstore/datasets/mia/HealthyAI/FOMO2025/fomo-task2/preprocessed/sub_14/ses_1/flair.nii.gz",
+                "/deepstore/datasets/mia/HealthyAI/FOMO2025/fomo-task2/preprocessed/sub_14/ses_1/t2s.nii.gz"
+            ]
+        },
+        "sub_8": {
+            "label": "/deepstore/datasets/mia/HealthyAI/FOMO2025/fomo-task2/labels/sub_8/ses_1/seg.nii.gz",
+            "images": [
+                "/deepstore/datasets/mia/HealthyAI/FOMO2025/fomo-task2/preprocessed/sub_8/ses_1/dwi_b1000.nii.gz",
+                "/deepstore/datasets/mia/HealthyAI/FOMO2025/fomo-task2/preprocessed/sub_8/ses_1/flair.nii.gz",
+                "/deepstore/datasets/mia/HealthyAI/FOMO2025/fomo-task2/preprocessed/sub_8/ses_1/t2s.nii.gz"
+            ]
+        },
+        "sub_2": {
+            "label": "/deepstore/datasets/mia/HealthyAI/FOMO2025/fomo-task2/labels/sub_2/ses_1/seg.nii.gz",
+            "images": [
+                "/deepstore/datasets/mia/HealthyAI/FOMO2025/fomo-task2/preprocessed/sub_2/ses_1/dwi_b1000.nii.gz",
+                "/deepstore/datasets/mia/HealthyAI/FOMO2025/fomo-task2/preprocessed/sub_2/ses_1/flair.nii.gz",
+                "/deepstore/datasets/mia/HealthyAI/FOMO2025/fomo-task2/preprocessed/sub_2/ses_1/t2s.nii.gz"
+            ]
+        },
+        "sub_16": {
+            "label": "/deepstore/datasets/mia/HealthyAI/FOMO2025/fomo-task2/labels/sub_16/ses_1/seg.nii.gz",
+            "images": [
+                "/deepstore/datasets/mia/HealthyAI/FOMO2025/fomo-task2/preprocessed/sub_16/ses_1/dwi_b1000.nii.gz",
+                "/deepstore/datasets/mia/HealthyAI/FOMO2025/fomo-task2/preprocessed/sub_16/ses_1/flair.nii.gz",
+                "/deepstore/datasets/mia/HealthyAI/FOMO2025/fomo-task2/preprocessed/sub_16/ses_1/swi.nii.gz"
+            ]
+        },
+        "sub_23": {
+            "label": "/deepstore/datasets/mia/HealthyAI/FOMO2025/fomo-task2/labels/sub_23/ses_1/seg.nii.gz",
+            "images": [
+                "/deepstore/datasets/mia/HealthyAI/FOMO2025/fomo-task2/preprocessed/sub_23/ses_1/dwi_b1000.nii.gz",
+                "/deepstore/datasets/mia/HealthyAI/FOMO2025/fomo-task2/preprocessed/sub_23/ses_1/flair.nii.gz",
+                "/deepstore/datasets/mia/HealthyAI/FOMO2025/fomo-task2/preprocessed/sub_23/ses_1/t2s.nii.gz"
+            ]
+        },
+        "sub_11": {
+            "label": "/deepstore/datasets/mia/HealthyAI/FOMO2025/fomo-task2/labels/sub_11/ses_1/seg.nii.gz",
+            "images": [
+                "/deepstore/datasets/mia/HealthyAI/FOMO2025/fomo-task2/preprocessed/sub_11/ses_1/dwi_b1000.nii.gz",
+                "/deepstore/datasets/mia/HealthyAI/FOMO2025/fomo-task2/preprocessed/sub_11/ses_1/flair.nii.gz",
+                "/deepstore/datasets/mia/HealthyAI/FOMO2025/fomo-task2/preprocessed/sub_11/ses_1/t2s.nii.gz"
+            ]
+        },
+        "sub_7": {
+            "label": "/deepstore/datasets/mia/HealthyAI/FOMO2025/fomo-task2/labels/sub_7/ses_1/seg.nii.gz",
+            "images": [
+                "/deepstore/datasets/mia/HealthyAI/FOMO2025/fomo-task2/preprocessed/sub_7/ses_1/dwi_b1000.nii.gz",
+                "/deepstore/datasets/mia/HealthyAI/FOMO2025/fomo-task2/preprocessed/sub_7/ses_1/flair.nii.gz",
+                "/deepstore/datasets/mia/HealthyAI/FOMO2025/fomo-task2/preprocessed/sub_7/ses_1/t2s.nii.gz"
+            ]
+        },
+        "sub_3": {
+            "label": "/deepstore/datasets/mia/HealthyAI/FOMO2025/fomo-task2/labels/sub_3/ses_1/seg.nii.gz",
+            "images": [
+                "/deepstore/datasets/mia/HealthyAI/FOMO2025/fomo-task2/preprocessed/sub_3/ses_1/dwi_b1000.nii.gz",
+                "/deepstore/datasets/mia/HealthyAI/FOMO2025/fomo-task2/preprocessed/sub_3/ses_1/flair.nii.gz",
+                "/deepstore/datasets/mia/HealthyAI/FOMO2025/fomo-task2/preprocessed/sub_3/ses_1/t2s.nii.gz"
+            ]
+        },
+        "sub_9": {
+            "label": "/deepstore/datasets/mia/HealthyAI/FOMO2025/fomo-task2/labels/sub_9/ses_1/seg.nii.gz",
+            "images": [
+                "/deepstore/datasets/mia/HealthyAI/FOMO2025/fomo-task2/preprocessed/sub_9/ses_1/dwi_b1000.nii.gz",
+                "/deepstore/datasets/mia/HealthyAI/FOMO2025/fomo-task2/preprocessed/sub_9/ses_1/flair.nii.gz",
+                "/deepstore/datasets/mia/HealthyAI/FOMO2025/fomo-task2/preprocessed/sub_9/ses_1/t2s.nii.gz"
+            ]
+        },
+        "sub_15": {
+            "label": "/deepstore/datasets/mia/HealthyAI/FOMO2025/fomo-task2/labels/sub_15/ses_1/seg.nii.gz",
+            "images": [
+                "/deepstore/datasets/mia/HealthyAI/FOMO2025/fomo-task2/preprocessed/sub_15/ses_1/dwi_b1000.nii.gz",
+                "/deepstore/datasets/mia/HealthyAI/FOMO2025/fomo-task2/preprocessed/sub_15/ses_1/flair.nii.gz",
+                "/deepstore/datasets/mia/HealthyAI/FOMO2025/fomo-task2/preprocessed/sub_15/ses_1/swi.nii.gz"
+            ]
+        },
+        "sub_20": {
+            "label": "/deepstore/datasets/mia/HealthyAI/FOMO2025/fomo-task2/labels/sub_20/ses_1/seg.nii.gz",
+            "images": [
+                "/deepstore/datasets/mia/HealthyAI/FOMO2025/fomo-task2/preprocessed/sub_20/ses_1/dwi_b1000.nii.gz",
+                "/deepstore/datasets/mia/HealthyAI/FOMO2025/fomo-task2/preprocessed/sub_20/ses_1/flair.nii.gz",
+                "/deepstore/datasets/mia/HealthyAI/FOMO2025/fomo-task2/preprocessed/sub_20/ses_1/t2s.nii.gz"
+            ]
+        },
+        "sub_18": {
+            "label": "/deepstore/datasets/mia/HealthyAI/FOMO2025/fomo-task2/labels/sub_18/ses_1/seg.nii.gz",
+            "images": [
+                "/deepstore/datasets/mia/HealthyAI/FOMO2025/fomo-task2/preprocessed/sub_18/ses_1/dwi_b1000.nii.gz",
+                "/deepstore/datasets/mia/HealthyAI/FOMO2025/fomo-task2/preprocessed/sub_18/ses_1/flair.nii.gz",
+                "/deepstore/datasets/mia/HealthyAI/FOMO2025/fomo-task2/preprocessed/sub_18/ses_1/t2s.nii.gz"
+            ]
+        },
+        "sub_12": {
+            "label": "/deepstore/datasets/mia/HealthyAI/FOMO2025/fomo-task2/labels/sub_12/ses_1/seg.nii.gz",
+            "images": [
+                "/deepstore/datasets/mia/HealthyAI/FOMO2025/fomo-task2/preprocessed/sub_12/ses_1/dwi_b1000.nii.gz",
+                "/deepstore/datasets/mia/HealthyAI/FOMO2025/fomo-task2/preprocessed/sub_12/ses_1/flair.nii.gz",
+                "/deepstore/datasets/mia/HealthyAI/FOMO2025/fomo-task2/preprocessed/sub_12/ses_1/t2s.nii.gz"
+            ]
+        },
+        "sub_4": {
+            "label": "/deepstore/datasets/mia/HealthyAI/FOMO2025/fomo-task2/labels/sub_4/ses_1/seg.nii.gz",
+            "images": [
+                "/deepstore/datasets/mia/HealthyAI/FOMO2025/fomo-task2/preprocessed/sub_4/ses_1/dwi_b1000.nii.gz",
+                "/deepstore/datasets/mia/HealthyAI/FOMO2025/fomo-task2/preprocessed/sub_4/ses_1/flair.nii.gz",
+                "/deepstore/datasets/mia/HealthyAI/FOMO2025/fomo-task2/preprocessed/sub_4/ses_1/t2s.nii.gz"
+            ]
+        }
+    }
+}

@@ -25,4 +25,4 @@ clean: ## Remove Python compiled files, caches, and build artifacts
 	@echo "Cleaned."
 
 lint: ## Run black formatting check on source, tests, and top-level .py files
-	black --target-version $(TARGET_VERSION) med_adapt nnunetv2 tests main.py visualisation *.py
+	black --target-version $(TARGET_VERSION) med_adapt nnunetv2 container-validator tests main.py visualisation *.py

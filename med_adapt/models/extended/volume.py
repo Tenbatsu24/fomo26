@@ -258,13 +258,23 @@ def vitv2_a_3d_large(
 
 
 if __name__ == "__main__":
-    _m = vitv2_a_3d_small(
-        n_modalities=1,
-        task="regression",
-        classes=2,
-        lora=False,
-        mea=True,
-    ).to("cuda")
+    import thop
+    import time
+    import psutil
+    import GPUtil
+
+    # Model setup
+    _m = (
+        vitv2_a_3d_small(
+            n_modalities=1,
+            task="regression",
+            classes=1,
+            lora=False,
+            mea=True,
+        )
+        .to("cuda")
+        .eval()
+    )
 
     _missing, _unexpected = _m.load_state_dict(
         torch.load("../../../checkpoints/small/296_518/last.ckpt"),
@@ -273,15 +283,125 @@ if __name__ == "__main__":
     print(
         f"[missing keys={len(_missing)}]\n\t{_missing},\n[unexpected_keys={len(_unexpected)}]\n\t{_unexpected}"
     )
-    print(
-        [
-            (
-                _out.shape
-                if isinstance(_out, torch.Tensor)
-                else [_out_i.shape for _out_i in _out]
-            )
-            for _out in _m(
-                torch.randn(1, 1, 196, 196, 24, device="cuda", dtype=torch.float32)
-            )
-        ]
+
+    # Create input tensor
+    input_tensor = torch.randn(1, 1, 176, 256, 256).to("cuda")
+    cpu_input = input_tensor.cpu()
+
+    # ============ GPU PROFILING ============
+    print("\n" + "=" * 50)
+    print("GPU INFERENCE PROFILE")
+    print("=" * 50)
+
+    # Clear GPU cache
+    torch.cuda.empty_cache()
+    torch.cuda.reset_peak_memory_stats()
+    #
+    # # Warm-up runs
+    # for _ in range(5):
+    #     _ = _m(input_tensor)
+    # torch.cuda.synchronize()
+
+    # Profile
+    gpu_start_mem = torch.cuda.memory_allocated() / 1024**3  # GB
+    torch.cuda.reset_peak_memory_stats()
+
+    # FLOPs and parameters
+    flops, params = thop.profile(_m, inputs=(input_tensor,), verbose=False)
+    flops_g = flops / 1e9
+    params_m = params / 1e6
+
+    # Inference timing
+    start_time = time.time()
+    with torch.no_grad():
+        output = _m(input_tensor)
+    torch.cuda.synchronize()
+    inference_time = (time.time() - start_time) * 1000  # ms
+
+    # Peak memory
+    peak_mem = torch.cuda.max_memory_allocated() / 1024**3  # GB
+    gpu_util = GPUtil.getGPUs()[0].load * 100 if GPUtil.getGPUs() else "N/A"
+
+    print(f"Input shape: {input_tensor.shape}")
+    print(f"FLOPs: {flops_g:.2f} GFLOPs")
+    print(f"Parameters: {params_m:.2f} M")
+    print(f"Inference time: {inference_time:.2f} ms")
+    print(f"Peak GPU memory usage: {peak_mem:.4f} GB")
+    print(f"Baseline GPU memory: {gpu_start_mem:.4f} GB")
+    print(f"GPU Utilization: {gpu_util}%")
+
+    # ============ CPU PROFILING ============
+    print("\n" + "=" * 50)
+    print("CPU INFERENCE PROFILE")
+    print("=" * 50)
+
+    # Model setup
+    _m = (
+        vitv2_a_3d_small(
+            n_modalities=1,
+            task="regression",
+            classes=1,
+            lora=False,
+            mea=True,
+        )
+        .to("cuda")
+        .eval()
     )
+
+    _missing, _unexpected = _m.load_state_dict(
+        torch.load("../../../checkpoints/small/296_518/last.ckpt"),
+        strict=False,
+    )
+
+    # Move model to CPU
+    _m_cpu = _m.cpu().eval()
+
+    # Clear CPU memory
+    import gc
+
+    gc.collect()
+
+    # # Warm-up runs
+    # for _ in range(5):
+    #     _ = _m_cpu(cpu_input)
+
+    # CPU memory baseline
+    process = psutil.Process()
+    cpu_start_mem = process.memory_info().rss / 1024**3  # GB
+
+    # Inference timing
+    start_time = time.time()
+    with torch.no_grad():
+        cpu_output = _m_cpu(cpu_input)
+    cpu_inference_time = (time.time() - start_time) * 1000  # ms
+
+    # CPU memory after inference
+    cpu_end_mem = process.memory_info().rss / 1024**3  # GB
+    cpu_peak_mem = max(cpu_start_mem, cpu_end_mem)
+
+    # CPU utilization
+    cpu_percent = psutil.cpu_percent(interval=0.5)
+
+    print(f"Input shape: {cpu_input.shape}")
+    print(f"FLOPs: {flops_g:.2f} GFLOPs (same as GPU)")
+    print(f"Parameters: {params_m:.2f} M (same as GPU)")
+    print(f"Inference time: {cpu_inference_time:.2f} ms")
+    print(f"Peak CPU memory usage: {cpu_peak_mem:.4f} GB")
+    print(f"CPU Utilization: {cpu_percent}%")
+
+    # ============ SUMMARY ============
+    print("\n" + "=" * 50)
+    print("SUMMARY")
+    print("=" * 50)
+    print(
+        f"GPU Inference: {inference_time:.2f} ms | Peak Memory: {peak_mem:.4f} GB | FLOPs: {flops_g:.2f} G"
+    )
+    print(
+        f"CPU Inference: {cpu_inference_time:.2f} ms | Peak Memory: {cpu_peak_mem:.4f} GB | FLOPs: {flops_g:.2f} G"
+    )
+
+    # Speed comparison
+    speedup = (
+        cpu_inference_time / inference_time if inference_time > 0 else float("inf")
+    )
+    print(f"GPU is {speedup:.2f}x faster than CPU")
