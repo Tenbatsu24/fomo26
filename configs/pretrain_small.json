@@ -2,11 +2,11 @@
   "model": {
     "size": "small",
     "volume_patch_size": [
-      14,
-      14,
+      8,
+      8,
       8
     ],
-    "use_patch_decode": true,
+    "use_patch_decode": false,
     "use_mask": true,
     "mask": {
       "mask_prob": 1.0,
@@ -19,9 +19,13 @@
   "data": {
     "dataset_name": "OpenMind",
     "crop_size": [
-      224,
-      224,
-      128
+      296,
+      296,
+      296
+    ],
+    "teacher_resize": [
+      518,
+      518
     ],
     "batch_size": 2,
     "num_workers": 8
@@ -39,18 +43,18 @@
   },
   "trainer": {
     "accelerator": "gpu",
-    "accumulate_grad_batches": 1,
+    "accumulate_grad_batches": 2,
     "benchmark": true,
     "deterministic": false,
     "devices": "auto",
     "gradient_clip_val": 0.5,
     "max_steps": 25000,
-    "num_nodes": 1,
+    "num_nodes": 2,
     "num_sanity_val_steps": 0,
     "precision": "bf16-mixed",
     "strategy": "auto",
     "sync_batchnorm": false,
-    "val_check_interval": 1000,
+    "val_check_interval": 4000,
     "check_val_every_n_epoch": null,
     "limit_val_batches": 20,
     "log_every_n_steps": 25
@@ -66,7 +70,7 @@
     ],
     [
       "rm_momentum",
-      "CatSched(CosSched(0.9, 0.0), ConstSched(0.0), 0.15)"
+      "CatSched(CosSched(0.05, 0.0), ConstSched(0.0), 0.05)"
     ]
   ],
   "metrics": null,

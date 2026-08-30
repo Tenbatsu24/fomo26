@@ -6,7 +6,7 @@
     "query_from": -1
   },
   "pretrained": {
-    "checkpoint": "small/296_518.ckpt"
+    "checkpoint": "small/296_518/last.ckpt"
   },
   "data": {
     "dataset_name": "REGR002_FOMO26_BrainAge",
