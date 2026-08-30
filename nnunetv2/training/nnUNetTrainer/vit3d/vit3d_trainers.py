@@ -234,7 +234,7 @@ class UNetViT3DSmallTrainer(AbstractViT3DAdaption):
         super().__init__(plans, configuration, fold, dataset_json, device)
 
         self.ckpt_path = "small/296_518/last.ckpt"
-        self.lora = True
+        self.lora = False
 
     @staticmethod
     def build_network_architecture(
@@ -242,15 +242,14 @@ class UNetViT3DSmallTrainer(AbstractViT3DAdaption):
         configuration_manager: ConfigurationManager,
         num_input_channels: int,
         num_output_channels: int,
-        enable_deep_supervision: bool = True,
+        enable_deep_supervision: bool = False,
     ) -> nn.Module:
 
         model = vitv2_a_3d_small(
             n_modalities=num_input_channels,
             task="segmentation",
             classes=num_output_channels,
-            lora=True,
-            # depth_last=False,
+            lora=False,
         )
 
         return model
