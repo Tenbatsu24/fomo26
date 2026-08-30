@@ -1,0 +1,58 @@
+{
+  "model": {
+    "variant": "3d",
+    "size": "small",
+    "lora": false,
+    "query_from": -3
+  },
+  "pretrained": {
+    "checkpoint": "small/296_518/last.ckpt"
+  },
+  "data": {
+    "dataset_name": "SEG002_FOMO26_Infarct",
+    "crop_size": [128, 128, 128],
+    "batch_size": 1,
+    "num_workers": 2,
+    "resample_spacing": "median"
+  },
+  "enable_aug": false,
+  "optimizer": {
+    "type": "AdamW",
+    "params": {
+      "lr": 0.002,
+      "weight_decay": 0.05,
+      "patch_embed_lr_mult": 0.2,
+      "layerwise_decay": 0.9
+    }
+  },
+  "trainer": {
+    "accelerator": "auto",
+    "accumulate_grad_batches": 1,
+    "benchmark": false,
+    "deterministic": false,
+    "devices": "auto",
+    "gradient_clip_val": 0.5,
+    "max_steps": 100,
+    "num_nodes": 1,
+    "num_sanity_val_steps": 0,
+    "precision": "32-true",
+    "strategy": "auto",
+    "sync_batchnorm": false,
+    "val_check_interval": 10,
+    "check_val_every_n_epoch": null,
+    "log_every_n_steps": 1
+  },
+  "scheduler": [
+    [
+      "lr",
+      "CatSched(LinSched(1e-8, 2e-3), CosSched(2e-3, 1e-9), 0.05)"
+    ],
+    [
+      "weight_decay",
+      "ConstSched(0.05)"
+    ]
+  ],
+  "loss": null,
+  "metrics": null,
+  "seed": 42
+}

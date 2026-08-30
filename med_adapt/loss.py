@@ -22,6 +22,7 @@ def get_loss(name: str, **params):
     """
     losses = {
         "cross_entropy": nn.CrossEntropyLoss,
+        "bce": nn.BCEWithLogitsLoss,
         "huber": nn.HuberLoss,
         "mse": nn.MSELoss,
         "dice_ce": DiceCELoss,

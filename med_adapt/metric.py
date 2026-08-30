@@ -9,7 +9,7 @@ import torch
 
 import torch.nn.functional as F
 
-from torchmetrics import Metric
+from torchmetrics import Metric, MeanAbsoluteError, R2Score
 from torchmetrics.regression import MeanSquaredError
 from torchmetrics.classification import MulticlassAccuracy, MulticlassAUROC
 
@@ -172,6 +172,8 @@ def get_metric(name: str, **params):
         "mse": lambda **p: MeanSquaredError(squared=True, **p),
         "rmse": lambda **p: MeanSquaredError(squared=False, **p),
         "l2": lambda **p: MeanSquaredError(squared=False, **p),
+        "mae": lambda **p: MeanAbsoluteError(**p),
+        "r2": lambda **p: R2Score(**p),
         "mean_dice": lambda **p: DiceIoUMetric(**p),
     }
     if name not in metrics:

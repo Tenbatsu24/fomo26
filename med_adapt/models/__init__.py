@@ -1,4 +1,4 @@
-from med_adapt.models.base import (
+from .base import (
     ViTv2,
     vitv2_tiny,
     vitv2_small,
@@ -9,6 +9,14 @@ from med_adapt.models.base import (
     vitv2_3d_small,
     vitv2_3d_base,
     vitv2_3d_large,
+)
+
+from .extended import (
+    ViT3DAdaption,
+    vitv2_a_3d_tiny,
+    vitv2_a_3d_small,
+    vitv2_a_3d_base,
+    vitv2_a_3d_large,
 )
 
 __all__ = [
@@ -23,4 +31,9 @@ __all__ = [
     "vitv2_3d_small",
     "vitv2_3d_base",
     "vitv2_3d_large",
+    "ViT3DAdaption",
+    "vitv2_a_3d_tiny",
+    "vitv2_a_3d_small",
+    "vitv2_a_3d_base",
+    "vitv2_a_3d_large",
 ]

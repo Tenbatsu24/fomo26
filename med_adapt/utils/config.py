@@ -55,4 +55,4 @@ def get_config(config_path: str | Path) -> ConfigDict:
     file override the defaults. Runtime-injected keys (e.g. ``num_classes``)
     can be set afterwards via item assignment.
     """
-    return ConfigDict(load_json_config(config_path), convert_dict=True)
+    return ConfigDict(load_json_config(config_path), convert_dict=True, type_safe=False)

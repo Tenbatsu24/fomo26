@@ -1,0 +1,50 @@
+[project]
+name = "med_adapt"
+version = "0.1.0"
+requires-python = "~=3.12"
+description = "nnU-Net is a framework for out-of-the box image segmentation."
+authors = [
+    { name = "Mei", email = "p.vaish@utwente.nl"},
+]
+classifiers = [
+    "Development Status :: 5 - Production/Stable",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Science/Research",
+    "Intended Audience :: Healthcare Industry",
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: Apache Software License",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Topic :: Scientific/Engineering :: Image Recognition",
+    "Topic :: Scientific/Engineering :: Medical Science Apps.",
+]
+keywords = [
+    'deep learning',
+    'medical image analysis',
+]
+dependencies = [
+    "numpy==1.26.4",
+    "nibabel",
+    "einops"
+]
+
+[project.scripts]
+med-adapt-inference = "med_adapt.inference:main"
+
+[project.optional-dependencies]
+dev = [
+    "black",
+    "ruff",
+    "pre-commit"
+]
+
+[build-system]
+requires = ["setuptools>=67.8.0"]
+build-backend = "setuptools.build_meta"
+
+[tool.codespell]
+skip = '.git,*.pdf,*.svg'
+#
+# ignore-words-list = ''
+
+[source]
+directory = "src"

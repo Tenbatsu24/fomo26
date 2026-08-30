@@ -1,0 +1,116 @@
+{
+    "configurations": {
+        "3d_fullres": {
+            "architecture": {
+                "_kw_requires_import": null,
+                "arch_kwargs": null,
+                "network_class_name": "ResEncL"
+            },
+            "batch_dice": true,
+            "batch_size": 2,
+            "data_identifier": "Spacing__1.00_1.00_1.00___Norm__Z",
+            "median_image_size_in_voxels": [
+                360.0,
+                470.0,
+                512.0
+            ],
+            "normalization_schemes": [
+                "ZScoreNormalization"
+            ],
+            "patch_size": [
+                160,
+                160,
+                160
+            ],
+            "preprocessor_name": "DefaultPreprocessor",
+            "resampling_fn_data": "resample_data_or_seg_to_shape",
+            "resampling_fn_data_kwargs": {
+                "force_separate_z": null,
+                "is_seg": false,
+                "order": 3,
+                "order_z": 0
+            },
+            "resampling_fn_probabilities": "resample_data_or_seg_to_shape",
+            "resampling_fn_probabilities_kwargs": {
+                "force_separate_z": null,
+                "is_seg": false,
+                "order": 1,
+                "order_z": 0
+            },
+            "resampling_fn_seg": "resample_data_or_seg_to_shape",
+            "resampling_fn_seg_kwargs": {
+                "force_separate_z": null,
+                "is_seg": true,
+                "order": 1,
+                "order_z": 0
+            },
+            "spacing": [
+                1,
+                1,
+                1
+            ],
+            "use_mask_for_norm": [
+                false
+            ]
+        }
+    },
+    "dataset_name": "Dataset002_TrigeminalNeuralgiaSegmentation",
+    "experiment_planner_used": "ExperimentPlanner",
+    "foreground_intensity_properties_per_channel": {
+        "0": {
+            "max": 136503.078125,
+            "mean": 12913.357421875,
+            "median": 888.6323852539062,
+            "min": 0.0,
+            "percentile_00_5": 90.82048797607422,
+            "percentile_99_5": 81520.5625,
+            "std": 20913.951171875
+        }
+    },
+    "image_reader_writer": "SimpleITKIO",
+    "label_manager": "LabelManager",
+    "original_median_shape_after_transp": [
+        360,
+        470,
+        512
+    ],
+    "original_median_spacing_after_transp": [
+        0.5,
+        0.48828125,
+        0.48828125
+    ],
+    "plans_name": "ptPlans__CNN_AlignedMAELR5____Spacing__1.00_1.00_1.00___Norm__Z",
+    "pretrain_info": {
+        "checkpoint_name": "CNN_AlignedMAELR5",
+        "checkpoint_path": "nnUNet/results/Dataset745_OpenMind/AlignedMAELR5Trainer__nnsslPlans__onemmiso/fold_all/checkpoint_final.pth",
+        "citations": [],
+        "key_to_encoder": "encoder.stages",
+        "key_to_lpe": null,
+        "key_to_stem": "encoder.stem",
+        "keys_to_in_proj": [
+            "encoder.stem.convs.0.conv",
+            "encoder.stem.convs.0.all_modules.0"
+        ],
+        "pt_num_in_channels": 1,
+        "pt_recommended_downstream_patchsize": [
+            160,
+            160,
+            160
+        ],
+        "pt_used_patchsize": [
+            128,
+            128,
+            128
+        ]
+    },
+    "transpose_backward": [
+        1,
+        2,
+        0
+    ],
+    "transpose_forward": [
+        2,
+        0,
+        1
+    ]
+}

@@ -20,30 +20,8 @@ def build_dataloaders(
     test_transforms=None,
     n_splits: int = 5,
     val_drop_last: bool = False,
-    resample_spacing=None,
-    resize_to=None,
+    resample_spacing="median",
 ) -> tuple[DataLoader, DataLoader, DataLoader]:
-    """Build train, validation, and test DataLoaders.
-
-    Args:
-        dataset_class: A subclass of :class:`MedicalTaskDataset`.
-        root: Path to the data root directory.
-        fold: Fold index for the split (0-based).
-        seed: Random seed for reproducibility.
-        batch_size: Batch size for the training loader.  Val/test use 1.
-        num_workers: Number of DataLoader workers.
-        num_val_workers: Number of validation / test Dataloader workers.
-        train_transforms: Optional transform pipeline for training.
-        val_transforms: Optional transform pipeline for validation.
-        test_transforms: Optional transform pipeline for testing.
-        n_splits: Total number of cross-validation folds.
-        val_drop_last: Whether to drop the last incomplete validation batch.
-        resample_spacing: Optional target spacing for resampling (tuple or "median").
-        resize_to: Optional target volume shape (H, W, D) for resizing.
-
-    Returns:
-        ``(train_dl, val_dl, test_dl)``
-    """
 
     if num_val_workers is None:
         num_val_workers = min(num_workers, 2)
@@ -56,7 +34,6 @@ def build_dataloaders(
         n_splits=n_splits,
         transform=train_transforms,
         resample_spacing=resample_spacing,
-        resize_to=resize_to,
     )
     val_ds = dataset_class(
         root=root,
@@ -66,7 +43,6 @@ def build_dataloaders(
         n_splits=n_splits,
         transform=val_transforms,
         resample_spacing=resample_spacing,
-        resize_to=resize_to,
     )
     test_ds = dataset_class(
         root=root,
@@ -76,7 +52,6 @@ def build_dataloaders(
         n_splits=n_splits,
         transform=test_transforms,
         resample_spacing=resample_spacing,
-        resize_to=resize_to,
     )
 
     train_dl = DataLoader(
@@ -86,14 +61,12 @@ def build_dataloaders(
         pin_memory=True,
         persistent_workers=(num_workers > 0),
         drop_last=True,
-        shuffle=True,
     )
     val_dl = DataLoader(
         val_ds,
         num_workers=num_val_workers,
         batch_size=1,
         pin_memory=False,
-        shuffle=False,
         persistent_workers=(num_val_workers > 0),
         drop_last=val_drop_last,
     )
@@ -102,7 +75,6 @@ def build_dataloaders(
         num_workers=num_val_workers,
         batch_size=1,
         pin_memory=False,
-        shuffle=False,
         persistent_workers=False,
     )
 
@@ -115,14 +87,12 @@ def build_pretrain_dataloaders(
     batch_size,
     num_workers,
     split_seed=42,
-    sampler_seed=42,
-    num_train_samples=None,
     train_transforms=None,
     val_transforms=None,
 ):
     from torch.utils.data import DataLoader
 
-    from med_adapt.datasets.sampler import UniformModalitySampler
+    num_workers = max(2, num_workers)
 
     tr_ds = dataset_class(
         root=root,
@@ -131,17 +101,13 @@ def build_pretrain_dataloaders(
         transform=train_transforms,
     )
 
-    sampler = UniformModalitySampler(
-        tr_ds.df["modality"].tolist(), seed=sampler_seed, num_samples=num_train_samples
-    )
-
     tr_dl = DataLoader(
         tr_ds,
         batch_size=batch_size,
-        sampler=sampler,
         num_workers=num_workers,
         pin_memory=True,
         drop_last=True,
+        persistent_workers=num_workers > 0,
     )
 
     val_ds = dataset_class(
@@ -149,7 +115,12 @@ def build_pretrain_dataloaders(
     )
 
     val_dl = DataLoader(
-        val_ds, batch_size=batch_size, num_workers=2, pin_memory=False, drop_last=False
+        val_ds,
+        batch_size=batch_size,
+        num_workers=num_workers,
+        pin_memory=True,
+        drop_last=False,
+        persistent_workers=True,
     )
 
     return tr_dl, val_dl

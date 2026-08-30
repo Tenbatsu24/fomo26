@@ -27,7 +27,6 @@ class Task1InfarctClassification(MedicalTaskDataset):
     NUM_CLASSES = 2
 
     LABEL_FILENAME = "label.txt"
-
     MASK_FILENAME = None
 
 
@@ -45,11 +44,9 @@ class Task1InfarctSegmentation(MedicalTaskDataset):
     )
 
     NUM_MODALITIES = 3
-
     NUM_CLASSES = 2
 
     LABEL_FILENAME = None
-
     MASK_FILENAME = "seg.nii.gz"
 
 
@@ -66,11 +63,9 @@ class Task2MeningiomaSegmentation(MedicalTaskDataset):
     )
 
     NUM_MODALITIES = 2
-
     NUM_CLASSES = 2
 
     LABEL_FILENAME = None
-
     MASK_FILENAME = "seg.nii.gz"
 
 
@@ -84,11 +79,9 @@ class Task3BrainAgeRegression(MedicalTaskDataset):
     MODALITIES = ("t1w",)
 
     NUM_MODALITIES = 1
-
-    NUM_CLASSES = None
+    NUM_CLASSES = 1
 
     LABEL_FILENAME = "labels.txt"
-
     MASK_FILENAME = None
 
 
@@ -102,11 +95,9 @@ class Task4TrigeminalNeuralgiaSegmentation(MedicalTaskDataset):
     MODALITIES = ("t2w",)
 
     NUM_MODALITIES = 1
-
     NUM_CLASSES = 3
 
     LABEL_FILENAME = None
-
     MASK_FILENAME = "seg.nii.gz"
 
 
@@ -120,11 +111,9 @@ class Task5PolymicrogyriaClassification(MedicalTaskDataset):
     MODALITIES = ("t1",)
 
     NUM_MODALITIES = 1
-
     NUM_CLASSES = 2
 
     LABEL_FILENAME = "labels.txt"
-
     MASK_FILENAME = None
 
 
@@ -170,15 +159,15 @@ if __name__ == "__main__":
 
     args = parser.parse_args()
 
-    root = Path("../../data")
+    root = Path("data")
 
     datasets = [
-        # Task1InfarctClassification,
-        Task1InfarctSegmentation,
-        # Task2MeningiomaSegmentation,
-        # Task3BrainAgeRegression,
-        # Task4TrigeminalNeuralgiaSegmentation,
-        # Task5PolymicrogyriaClassification,
+        Task1InfarctClassification,
+        # Task1InfarctSegmentation,
+        Task2MeningiomaSegmentation,
+        Task3BrainAgeRegression,
+        Task4TrigeminalNeuralgiaSegmentation,
+        Task5PolymicrogyriaClassification,
     ]
 
     logger.info("=" * 100)

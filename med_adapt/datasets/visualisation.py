@@ -13,9 +13,8 @@ from typing import Any, Dict, List
 import numpy as np
 import matplotlib.pyplot as plt
 
-from .io import ensure_3d, load_nifti
-
 from med_adapt.utils.config import get_logger
+from med_adapt.datasets.io import ensure_3d, load_nifti
 
 logger = get_logger(__name__)
 
@@ -65,13 +64,13 @@ def create_gallery(
         loaded_images = []
 
         for image_path in sample["image_paths"]:
-            image, _, _ = load_nifti(image_path, preprocess=True)
+            image, _, _ = load_nifti(image_path)
             image = ensure_3d(image, image_path)
             loaded_images.append(image)
 
         mask = None
         if task_type == "segmentation":
-            mask, _, _ = load_nifti(sample["label"], preprocess=False)
+            mask, _, _ = load_nifti(sample["label"], is_mask=True)
             mask = ensure_3d(mask, sample["label"])
 
             mask_sum_per_depth = np.sum(mask > 0, axis=(0, 1))

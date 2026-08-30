@@ -164,17 +164,9 @@ class MaskGenerator3D:
 def generate_masks(
     patch_resolution,
     number_of_samples,
-    mask_prob=0.75,
-    per_sample_range=(0.05, 0.1),
+    mask_prob=0.1,
+    per_sample_range=(0.1, 0.2),
 ):
-    """
-    Returns:
-        Tensor of shape [B, H*W*D]
-
-    Output convention:
-        1 = keep
-        0 = drop
-    """
     mask_generator = MaskGenerator3D(
         input_size=patch_resolution,
     )
@@ -197,8 +189,7 @@ def generate_masks(
         else:
             masked = mask_generator(num_masking_voxels=0)
 
-        keep_mask = ~masked
-        masks.append(keep_mask)
+        masks.append(masked)
 
     random.shuffle(masks)
 
@@ -215,14 +206,6 @@ def generate_masks(
 
 
 def visualize_volume_mask(mask_keep):
-    """
-    mask_keep shape:
-        (H, W, D)
-
-    Convention:
-        1 = keep
-        0 = drop
-    """
 
     d = mask_keep.shape[2]
 
@@ -234,8 +217,8 @@ def visualize_volume_mask(mask_keep):
 
     cmap = ListedColormap(
         [
-            "red",  # dropped
             "white",  # kept
+            "red",  # dropped
         ]
     )
 
@@ -273,20 +256,20 @@ def visualize_volume_mask(mask_keep):
 
 
 def main():
-    h = w = d = 16
+    h, w, d = 28, 28, 28
 
     masks = generate_masks(
         (h, w, d),
-        number_of_samples=8,
-        mask_prob=0.75,
-        per_sample_range=(0.05, 0.15),
+        number_of_samples=32,
+        mask_prob=1.0,
+        per_sample_range=(0.01, 0.10),
     )
 
     for mask in masks:
 
         mask = mask.reshape(h, w, d).numpy()
 
-        print(f"keep ratio = {mask.mean():.4f}, drop ratio = {(mask == 0).mean():.4f}")
+        print(f"drop ratio = {mask.mean():.4f}, keep ratio = {(mask == 0).mean():.4f}")
 
         visualize_volume_mask(mask)
 

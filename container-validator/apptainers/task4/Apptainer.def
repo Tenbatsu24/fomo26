@@ -1,0 +1,50 @@
+Bootstrap: docker
+From: puruvaish24/pytorch-xformers:2.10-cu126
+
+%labels
+    Author FOMO26 Challenge - Trigeminal Segmentation Task
+    Version v1.0.0
+    Description FOMO26 Trigeminal Neuralgia Multiclass Segmentation Apptainer Image
+
+%environment
+    export PYTHONUNBUFFERED=1
+    export LC_ALL=C.UTF-8
+
+%files
+    # Copy your files (model, predict.py, requirements.txt, ...) to the container
+    ./predict.py /app/predict.py
+    ./requirements.txt /app/requirements.txt
+    ./src /app/src
+    ./setup.py /app/setup.py
+    ./models /app/models
+    ./pyproject.toml /app/pyproject.toml
+
+%post
+    set -eux
+
+    apt-get update && apt-get install -y --no-install-recommends git && rm -rf /var/lib/apt/lists/*
+
+    cd /app
+    python -m pip install --no-cache-dir --break-system-packages .
+    cd /
+
+    chmod +x /app/predict.py
+
+%runscript
+    exec python /app/predict.py "$@"
+
+%help
+    This container runs the FOMO26 trigeminal multiclass segmentation task.
+
+    Build this container with:
+
+        `apptainer build --fakeroot /path/to/save/trigeminal.sif /path/to/Apptainer.def`
+
+    Usage:
+
+        `apptainer run --bind /path/to/input:/input:ro \
+            --bind /path/to/output:/output \
+            --nv \
+            trigeminal.sif \
+            --t2 /input/t2w.nii.gz \
+            --output /output/segmentation.nii.gz`

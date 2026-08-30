@@ -27,15 +27,15 @@ class AttentionPooling(nn.Module):
 
     def __init__(
         self,
-        num_queries: int,
         dim: int,
-        num_heads: int = 8,
+        num_classes: int = 1,
+        num_heads: int = 1,
         qkv_bias: bool = True,
         dropout: float = 0.0,
     ):
         super().__init__()
         assert dim % num_heads == 0, "dim must be divisible by num_heads"
-        self.classes = num_queries
+        self.classes = num_classes
 
         self.dim = dim
         self.num_heads = num_heads
@@ -56,7 +56,7 @@ class AttentionPooling(nn.Module):
 
         self.norm = nn.LayerNorm(dim)
 
-    def forward(self, x: torch.Tensor, mask: torch.Tensor = None) -> torch.Tensor:
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
         """
         x: (B, N, D) patch token representations
         mask: optional (B, N) boolean tensor, True = valid, False = padded
@@ -71,38 +71,27 @@ class AttentionPooling(nn.Module):
         v = self.v_proj(x)
 
         if XFORMERS_AVAILABLE and x.is_cuda:
-            out = self._attn_xformers(q, k, v, mask)
+            out = self._attn_xformers(q, k, v)
         else:
-            out = self._attn_manual(q, k, v, mask)
+            out = self._attn_manual(q, k, v)
 
         out = self.out_proj(out)
         out = self.proj_drop(out)
         return out  # (B, c, D)
 
-    def _attn_xformers(self, q, k, v, mask):
+    def _attn_xformers(self, q, k, v):
         B = q.shape[0]
         # xformers expects (B, N, H, hd)
         q = q.reshape(B, self.classes, self.num_heads, self.head_dim)
         k = k.reshape(B, -1, self.num_heads, self.head_dim)
         v = v.reshape(B, -1, self.num_heads, self.head_dim)
 
-        attn_bias = None
-        if mask is not None:
-            # build additive bias: 0 for valid, -inf for masked, shape (B, H, 1, N)
-            N = k.shape[1]
-            attn_bias = torch.zeros(
-                B, self.num_heads, 1, N, dtype=q.dtype, device=q.device
-            )
-            attn_bias.masked_fill_(
-                ~mask[:, None, None, :].to(torch.bool), float("-inf")
-            )
-
         out = memory_efficient_attention(
-            q, k, v, attn_bias=attn_bias, p=self.dropout if self.training else 0.0
+            q, k, v, attn_bias=None, p=self.dropout if self.training else 0.0
         )  # (B, 1, H, hd)
         return out.reshape(B, self.classes, self.dim)
 
-    def _attn_manual(self, q, k, v, mask):
+    def _attn_manual(self, q, k, v):
         B, N = q.shape[0], k.shape[1]
         q = q.reshape(B, self.classes, self.num_heads, self.head_dim).transpose(
             1, 2
@@ -115,10 +104,6 @@ class AttentionPooling(nn.Module):
         )  # (B, H, N, hd)
 
         attn = (q @ k.transpose(-2, -1)) * self.scale  # (B, H, 1, N)
-        if mask is not None:
-            attn = attn.masked_fill(
-                ~mask[:, None, None, :].to(torch.bool), float("-inf")
-            )
         attn = attn.softmax(dim=-1)
         attn = self.attn_drop(attn)
 
@@ -127,7 +112,7 @@ class AttentionPooling(nn.Module):
 
 
 if __name__ == "__main__":
-    pool = AttentionPooling(2, dim=768, num_heads=8)
+    pool = AttentionPooling(dim=768, num_classes=2, num_heads=8)
     tokens = torch.randn(4, 196, 768)  # B=4, N=196 patches, D=768
     pooled = pool(tokens)  # (4, 768)
 

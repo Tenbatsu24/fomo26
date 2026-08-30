@@ -1,8 +1,7 @@
 """Main entry point for med_adapt training.
 
 Usage:
-    python main.py --config configs/default.json --fold 0
-    python main.py --config configs/default.json --fold 0 --test
+    python main.py --config configs/pretrain.json
 """
 
 import argparse
@@ -13,7 +12,7 @@ import torch
 import lightning as pl
 
 from torchvision import transforms
-from lightning.pytorch.loggers import CSVLogger
+from lightning.pytorch.loggers import WandbLogger
 from lightning.pytorch.callbacks import ModelCheckpoint, LearningRateMonitor
 
 from med_adapt.datasets import build_pretrain_dataloaders
@@ -26,10 +25,14 @@ from med_adapt.augs import (
     PadToShape3D,
     RandomResizedCrop3D,
     CenterCrop3D,
+    RandomSwapSpatialDims3D,
+    RandomFlipSpatialDims3D,
 )
 from med_adapt.trainer import PretrainTrainer
 
 logger = get_logger(__name__)
+
+torch.set_float32_matmul_precision("medium")
 
 
 def check_monitor_top_k(self, trainer, current=None):
@@ -63,13 +66,17 @@ ModelCheckpoint.check_monitor_top_k = check_monitor_top_k
 
 def build_cpu_transforms(crop_size, training, task):
     label_key = "label" if task == "segmentation" else None
-    tforms = []
     if training:
-        tforms.append(PadToShape3D(crop_size, label_key=label_key))
-        tforms.append(RandomResizedCrop3D(crop_size, label_key=label_key))
+        tforms = [
+            RandomSwapSpatialDims3D(p=0.5, label_key=label_key),
+            RandomFlipSpatialDims3D(p=0.5, label_key=label_key),
+            RandomResizedCrop3D(crop_size, label_key=label_key),
+        ]
     else:
-        tforms.append(PadToShape3D(crop_size, label_key=label_key))
-        tforms.append(CenterCrop3D(crop_size, label_key=label_key))
+        tforms = [
+            PadToShape3D(crop_size, label_key=label_key),
+            CenterCrop3D(crop_size, label_key=label_key),
+        ]
     return transforms.Compose(tforms) if tforms else None
 
 
@@ -107,7 +114,6 @@ def build_model(config, n_modalities):
 def main():
     parser = argparse.ArgumentParser(description="med_adapt training")
     parser.add_argument("--config", type=str, required=True)
-    parser.add_argument("--fold", type=int, required=True)
 
     args = parser.parse_args()
 
@@ -123,7 +129,6 @@ def main():
     config["n_modalities"] = n_modalities
 
     data_root = str(get_nnssl_preprocessed_path())
-    fold = args.fold
     seed = config.seed
     crop_size = tuple(config.data.crop_size)
 
@@ -135,10 +140,8 @@ def main():
         dataset_class=dataset_class,
         root=data_root,
         split_seed=seed,
-        sampler_seed=seed,
         batch_size=config.data.batch_size,
         num_workers=config.data.num_workers,
-        num_train_samples=config.data.num_samples * config.data.batch_size,
         train_transforms=train_cpu_transforms,
         val_transforms=val_cpu_transforms,
     )
@@ -155,26 +158,39 @@ def main():
         gpu_augmentations=gpu_transforms,
     )
 
-    run_name = f"{dataset_name}-{config.model.size}"
+    run_name = f"{config.model.size}"
     results_path = get_results_path()
 
     lr_monitor = LearningRateMonitor(logging_interval="step")
-    csv_logger = CSVLogger(results_path, name=f"{run_name}/fold_{fold}")
-    log_dir = Path(csv_logger.log_dir)
+    # csv_logger = CSVLogger(results_path, name=f"{run_name}")
+    wandb_logger = WandbLogger(run_name, save_dir=results_path, project="fomo26")
+
+    run_dir = Path(results_path) / run_name
+
+    versions = [
+        int(p.name.split("_")[1])
+        for p in run_dir.glob("version_*")
+        if p.is_dir() and p.name.split("_")[1].isdigit()
+    ]
+
+    next_version = max(versions, default=0) + 1
+    model_dir = run_dir / f"version_{next_version}"
+    logger.info(f"Model storing dir is: {model_dir}")
+    model_dir.mkdir(exist_ok=True, parents=True)
 
     checkpoint_callback = ModelCheckpoint(
-        dirpath=log_dir,
+        dirpath=model_dir,
         filename=f"step={{step}}-val_loss={{val/loss:.3f}}",
         monitor=f"val/loss",
         auto_insert_metric_name=False,
-        save_top_k=1,
+        save_top_k=-1,
         mode="min",
         save_last=False,
         enable_version_counter=False,
         save_weights_only=True,
     )
     last_checkpoint_callback = ModelCheckpoint(
-        dirpath=log_dir,
+        dirpath=model_dir,
         filename="last",
         save_last=True,
         enable_version_counter=False,
@@ -182,10 +198,10 @@ def main():
     )
 
     pl_trainer = pl.Trainer(
-        default_root_dir=log_dir,
+        default_root_dir=results_path,
         callbacks=[checkpoint_callback, last_checkpoint_callback, lr_monitor],
         **config.trainer.to_dict(),
-        logger=csv_logger,
+        logger=wandb_logger,
     )
 
     pl_trainer.fit(trainer, train_dataloaders=train_dl, val_dataloaders=val_dl)

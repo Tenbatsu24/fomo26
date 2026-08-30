@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from typing import Optional
-
 import torch
 
 from ml_collections import ConfigDict
@@ -18,10 +16,9 @@ class ClassificationTrainer(TemplateTrainer):
         config: ConfigDict,
         model,
         gpu_augmentations,
-        normalisation: Optional[torch.nn.Module] = None,
     ):
         config["loss"] = {"type": "cross_entropy"}
-        super().__init__(config, model, gpu_augmentations, normalisation)
+        super().__init__(config, model, gpu_augmentations)
 
     def make_metrics(self):
         return {

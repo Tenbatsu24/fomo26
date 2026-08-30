@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import random
 from pathlib import Path
 from typing import Optional
 
@@ -7,15 +8,24 @@ import blosc2
 import numpy as np
 import pandas as pd
 import torch
+import torch.distributed as dist
 
-from torch.utils.data import Dataset
+from torch.utils.data import get_worker_info
+from torch.utils.data import IterableDataset
 from sklearn.model_selection import train_test_split
 
+from med_adapt.utils.config import get_logger
 from med_adapt.registry import register_dataset
+from med_adapt.datasets.io import _percentile_zscore
+
+logger = get_logger(__name__)
 
 
 @register_dataset("OpenMind")
-class OpenNeuroDataset(Dataset):
+class OpenNeuroDataset(IterableDataset):
+
+    FOLDER_NAME: str = "Dataset745_OpenMind"
+
     TASK_NAME: str = "OpenNeuro"
     TASK_TYPE: str = "pretrain"
 
@@ -33,7 +43,7 @@ class OpenNeuroDataset(Dataset):
     ):
         super().__init__()
 
-        self.root = Path(root)
+        self.root = Path(root) / self.FOLDER_NAME
         self.split = split
         self.seed = seed
         self.transform = transform
@@ -86,54 +96,6 @@ class OpenNeuroDataset(Dataset):
 
         return Path(image_path)
 
-    @staticmethod
-    def _percentile_zscore(
-        image: np.ndarray,
-        lower: float = 0.5,
-        upper: float = 99.5,
-    ):
-        """
-        Percentile clipping followed by z-score normalization.
-
-        Uses foreground voxels if available
-        (voxels > 0), otherwise falls back to all voxels.
-        """
-
-        image = image.astype(
-            np.float32,
-            copy=False,
-        )
-
-        values = image.reshape(-1)
-
-        lo = np.percentile(
-            values,
-            lower,
-        )
-
-        hi = np.percentile(
-            values,
-            upper,
-        )
-
-        image = np.clip(
-            image,
-            lo,
-            hi,
-        )
-
-        values = image.reshape(-1)
-
-        mean = values.mean()
-        std = values.std()
-
-        if std > 0:
-            image = (image - mean) / std
-        else:
-            image = image - mean
-
-        return image
-
     def _load_image(
         self,
         path: Path,
@@ -149,19 +111,28 @@ class OpenNeuroDataset(Dataset):
         """
 
         array = blosc2.open(str(path))
+        image = np.asarray(array, dtype=np.float32)
+        # image = np.random.default_rng(0).standard_normal((1, 224, 224, 196), dtype=np.float32)
 
-        image = np.asarray(
-            array,
-            dtype=np.float32,
-        )
+        if np.isnan(image).any():
+            logger.info("=" * 25)
+            logger.info(f"NAN FOUND IN TRAINING DATA")
+            logger.info(path)  # for debug and getting rid of perhaps
+            logger.info()
+            logger.info("=" * 25)
 
-        image = self._percentile_zscore(
+            rng = np.random.default_rng(0)
+            image = rng.standard_normal(
+                image.shape, dtype=np.float32
+            )  # we do not want to crash ddp training.
+
+        image = _percentile_zscore(
             image,
             lower=0.5,
             upper=99.5,
         )
 
-        return torch.from_numpy(image.transpose(0, 2, 3, 1))
+        return torch.from_numpy(image)
 
     def __getitem__(
         self,
@@ -169,15 +140,39 @@ class OpenNeuroDataset(Dataset):
     ):
         row = self.df.iloc[index]
         image_path = self._resolve_image_path(row["image_path"])
-        image = self._load_image(image_path)
-        # image = torch.rand((1, 224, 224, 196), dtype=torch.float32)
-        sample = {
-            "image": image,
-            "label": 0,
-        }
+        image = self._load_image(image_path)  # to be used when actually training
+
+        sample = {"image": image, "label": 0, "index": index}
         if self.transform is not None:
             sample = self.transform(sample)
         return sample
+
+    def __iter__(self):
+        world_size = dist.get_world_size() if dist.is_initialized() else 1
+        rank = dist.get_rank() if dist.is_initialized() else 0
+
+        worker_info = get_worker_info()
+
+        if worker_info is None:
+            worker_id = 0
+            num_workers = 1
+        else:
+            worker_id = worker_info.id
+            num_workers = worker_info.num_workers
+
+        global_workers = world_size * num_workers
+        global_worker_id = rank * num_workers + worker_id
+
+        rng = random.Random(self.seed)
+
+        while True:
+            indices = list(range(len(self)))
+
+            if self.split == "train":
+                rng.shuffle(indices)
+
+            for idx in indices[global_worker_id::global_workers]:
+                yield self[idx]
 
 
 def save_gallery(loader, filename="gallery.png", n_examples=16):

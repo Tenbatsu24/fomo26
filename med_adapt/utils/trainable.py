@@ -6,11 +6,6 @@ def mark_trainable(
     trainable_keys: tuple[str, ...] = (
         "lora_A",
         "lora_B",
-        "attn_pool",
-        "head",
-        "input_adapter",
-        "upscale",
-        "cross_attn",
     ),
     additional_keys: list[str] | None = None,
 ) -> tuple[list[str], list[str]]:

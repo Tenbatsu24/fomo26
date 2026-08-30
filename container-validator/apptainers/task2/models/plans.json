@@ -1,0 +1,138 @@
+{
+    "configurations": {
+        "3d_fullres": {
+            "architecture": {
+                "_kw_requires_import": null,
+                "arch_kwargs": null,
+                "network_class_name": "ResEncL"
+            },
+            "batch_dice": false,
+            "batch_size": 2,
+            "data_identifier": "Spacing__1.00_1.00_1.00___Norm__Z_Z_Z",
+            "median_image_size_in_voxels": [
+                29.0,
+                268.0,
+                217.0
+            ],
+            "normalization_schemes": [
+                "ZScoreNormalization",
+                "ZScoreNormalization",
+                "ZScoreNormalization"
+            ],
+            "patch_size": [
+                160,
+                160,
+                160
+            ],
+            "preprocessor_name": "DefaultPreprocessor",
+            "resampling_fn_data": "resample_data_or_seg_to_shape",
+            "resampling_fn_data_kwargs": {
+                "force_separate_z": null,
+                "is_seg": false,
+                "order": 3,
+                "order_z": 0
+            },
+            "resampling_fn_probabilities": "resample_data_or_seg_to_shape",
+            "resampling_fn_probabilities_kwargs": {
+                "force_separate_z": null,
+                "is_seg": false,
+                "order": 1,
+                "order_z": 0
+            },
+            "resampling_fn_seg": "resample_data_or_seg_to_shape",
+            "resampling_fn_seg_kwargs": {
+                "force_separate_z": null,
+                "is_seg": true,
+                "order": 1,
+                "order_z": 0
+            },
+            "spacing": [
+                1,
+                1,
+                1
+            ],
+            "use_mask_for_norm": [
+                false,
+                false,
+                false
+            ]
+        }
+    },
+    "dataset_name": "Dataset602_FOMO60k2",
+    "experiment_planner_used": "ExperimentPlanner",
+    "foreground_intensity_properties_per_channel": {
+        "0": {
+            "max": 10475.9765625,
+            "mean": 357.4199523925781,
+            "median": 96.26020050048828,
+            "min": 8.714688301086426,
+            "percentile_00_5": 12.907108306884766,
+            "percentile_99_5": 6943.4326171875,
+            "std": 1039.5123291015625
+        },
+        "1": {
+            "max": 31947.6796875,
+            "mean": 1473.1365966796875,
+            "median": 405.0,
+            "min": 12.0,
+            "percentile_00_5": 32.0,
+            "percentile_99_5": 28834.921875,
+            "std": 5085.35546875
+        },
+        "2": {
+            "max": 20374.966796875,
+            "mean": 902.3211059570312,
+            "median": 354.9017333984375,
+            "min": 0.0,
+            "percentile_00_5": 0.0,
+            "percentile_99_5": 17190.376953125,
+            "std": 2525.094970703125
+        }
+    },
+    "image_reader_writer": "SimpleITKIO",
+    "label_manager": "LabelManager",
+    "original_median_shape_after_transp": [
+        25,
+        256,
+        232
+    ],
+    "original_median_spacing_after_transp": [
+        6.5,
+        0.859375,
+        0.859375
+    ],
+    "plans_name": "ptPlans__CNN_AlignedMAELR5Trainer_0602_Dataset_745____Spacing__1.00_1.00_1.00___Norm__Z_Z_Z",
+    "pretrain_info": {
+        "checkpoint_name": "CNN_AlignedMAELR5Trainer_0602_Dataset_745",
+        "checkpoint_path": "/deepstore/datasets/mia/HealthyAI/nnUNet_models/Dataset745_OpenMind/AlignedMAELR5Trainer__nnsslPlans__onemmiso/fold_all/checkpoint_final.pth",
+        "citations": [],
+        "key_to_encoder": "encoder.stages",
+        "key_to_lpe": null,
+        "key_to_stem": "encoder.stem",
+        "keys_to_in_proj": [
+            "encoder.stem.convs.0.conv",
+            "encoder.stem.convs.0.all_modules.0"
+        ],
+        "pt_num_in_channels": 1,
+        "pt_recommended_downstream_patchsize": [
+            160,
+            160,
+            160
+        ],
+        "pt_used_patchsize": [
+            128,
+            128,
+            128
+        ]
+    },
+    "transpose_backward": [
+        0,
+        1,
+        2
+    ],
+    "transpose_forward": [
+        0,
+        1,
+        2
+    ]
+}
